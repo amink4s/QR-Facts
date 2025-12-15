@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QR Facts - Bidder Deep Dives</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: { extend: { colors: { neon: '#a855f7' } } }
+        }
+    </script>
+    <style>
+        body { background: #0f0f0f; color: white; font-family: 'Inter', sans-serif; }
+        .qr-border { border: 2px solid #a855f7; }
+        .pulse { animation: pulse 2s infinite; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+    </style>
+</head>
+<body class="dark min-h-screen p-4">
+    <!-- Header: QR Facts Branded -->
+    <div class="text-center mb-8">
+        <h1 class="text-2xl font-bold text-neon mb-4">QR Facts</h1>
+        <p class="text-gray-400 mb-2">Daily Bidder Deep Dives • Resets at Midnight</p>
+        <div class="qr-border inline-block p-4 rounded-lg bg-black mb-4 pulse">
+            <svg width="100" height="100" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <!-- Simple QR mock -->
+                <rect width="100" height="100" fill="#a855f7" opacity="0.1"/>
+                <rect x="10" y="10" width="20" height="20" fill="#a855f7"/>
+                <rect x="70" y="10" width="20" height="20" fill="#a855f7"/>
+                <!-- Add more squares for QR look -->
+            </svg>
+        </div>
+        <div class="text-neon font-mono">Auction Ends: 23h 45m</div>
+        <div class="text-green-400 mt-2">Current High Bid: $450 USDC</div>
+        <p class="text-xs text-gray-500 mt-1">Powered by $FACTS Airdrops</p>
+    </div>
+
+    <!-- Bidder List: Auto-loaded from on-chain -->
+    <div id="bidders" class="space-y-4 max-w-md mx-auto">
+        <!-- Demo Cards (Replace with on-chain fetch: ethers.getLogs for BidPlaced events) -->
+        <div class="bg-gray-900 p-4 rounded-lg border border-gray-700">
+            <h3 class="font-bold text-neon">@bidder1.eth • $300 Bid</h3>
+            <p class="text-sm text-gray-400 mt-1">Link: <a href="#" class="text-neon">token-page.com</a></p>
+            <div class="mt-2">
+                <h4 class="font-semibold">Token Fact Sheet</h4>
+                <p class="text-sm">DeFi yield optimizer on Base. Earn 20% APY on stables—simple staking, no lockups. CA: 0xabc...def</p>
+                <button class="bg-neon text-black px-3 py-1 rounded text-xs mt-2 mr-2">Read Full Facts</button>
+                <button class="bg-green-600 text-white px-3 py-1 rounded text-xs">Claim $FACTS</button>
+            </div>
+        </div>
+        <div class="bg-gray-900 p-4 rounded-lg border border-gray-700">
+            <h3 class="font-bold text-neon">@project2 • $250 Bid</h3>
+            <p class="text-sm text-gray-400 mt-1">Link: <a href="#" class="text-neon">myproject.io</a></p>
+            <div class="mt-2">
+                <h4 class="font-semibold">Project Fact File</h4>
+                <p class="text-sm">AI art generator mini app. Mint NFTs from prompts—Farcaster integrated. No submission yet? <button class="underline text-neon">Add Your Facts</button></p>
+                <button class="bg-green-600 text-white px-3 py-1 rounded text-xs">Claim $FACTS</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Submission Modal: With $FACTS Teaser -->
+    <button onclick="openModal()" class="fixed bottom-4 right-4 bg-neon text-black px-6 py-3 rounded-full font-bold">Add My Facts</button>
+
+    <div id="modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4">
+        <div class="bg-gray-900 p-6 rounded-lg max-w-md w-full">
+            <h2 class="text-xl font-bold text-neon mb-4">Claim Your Fact Spotlight</h2>
+            <form>
+                <input type="text" placeholder="Title (e.g., 'Why My Token's Facts Rock')" class="w-full p-2 bg-gray-800 rounded mb-3 text-white">
+                <textarea placeholder="Write your fact article... (CA or link auto-filled from bid)" rows="6" class="w-full p-2 bg-gray-800 rounded mb-3 text-white"></textarea>
+                <input type="text" placeholder="Token CA or Project Link" class="w-full p-2 bg-gray-800 rounded mb-3 text-white" value="0xabc...">
+                <p class="text-green-400 text-sm">Submit for 200 $FACTS airdrop!</p>
+                <div class="flex justify-end space-x-2">
+                    <button type="button" onclick="closeModal()" class="px-4 py-2 text-gray-400">Cancel</button>
+                    <button type="submit" class="bg-neon text-black px-4 py-2 rounded">Submit Facts</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        // Real Fetch: Use viem/ethers to query Base RPC for auction events
+        // e.g., const { createPublicClient, http } = await import('viem'); const client = createPublicClient({ chain: base, transport: http() });
+        // const logs = await client.getLogs({ address: 'AUCTION_CONTRACT_ADDR', event: parseAbi(['event BidPlaced(address bidder, uint amount, string link)']), fromBlock: todayBlock });
+        // Then render cards from logs.
+
+        const demoBidders = [ /* Add more */ ];
+        // document.getElementById('bidders').innerHTML = bidders.map(b => cardHTML).join('');
+
+        function openModal() { document.getElementById('modal').classList.remove('hidden'); }
+        function closeModal() { document.getElementById('modal').classList.add('hidden'); }
+    </script>
+</body>
+</html>
