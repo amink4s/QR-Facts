@@ -26,7 +26,9 @@ document.addEventListener('alpine:init', () => {
             const wallet = signerApprovalData.address;
 
             // Neynar fetches
-            const neynarKey = '01C49CC8-1E94-459D-8BD5-C56E7D6A8390';
+            const keyRes = await fetch('/api/neynar-key');
+            const keyJson = await keyRes.json();
+            const neynarKey = keyJson.key;
             const userRes = await fetch(`https://api.neynar.com/v2/farcaster/user/bulk?fids=${fid}`, {
                 headers: { api_key: neynarKey }
             });

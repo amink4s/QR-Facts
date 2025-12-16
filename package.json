@@ -1,0 +1,9 @@
+{
+  "name": "qr-facts",
+  "version": "1.0.0",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "vercel-build": "echo 'Static build'"
+  }
+}
