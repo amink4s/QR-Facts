@@ -19,8 +19,24 @@ document.addEventListener('alpine:init', () => {
                 if (typeof viem === 'undefined') throw new Error('viem not loaded');
 
                 const { createPublicClient, http } = viem;
+
+                // Define Base chain manually (fixes viem.base undefined in CDN)
+                const baseChain = {
+                    id: 8453,
+                    name: 'Base',
+                    network: 'base',
+                    nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+                    rpcUrls: {
+                        default: { http: ['https://mainnet.base.org'] },
+                        public: { http: ['https://mainnet.base.org'] },
+                    },
+                    blockExplorers: {
+                        default: { name: 'Basescan', url: 'https://basescan.org' },
+                    },
+                };
+
                 const client = createPublicClient({
-                    chain: viem.base,
+                    chain: baseChain,
                     transport: http('https://mainnet.base.org')
                 });
 
@@ -29,34 +45,34 @@ document.addEventListener('alpine:init', () => {
                 const rawBids = await client.readContract({
                     address: contractAddress,
                     abi: [{
-                        "inputs": [],
-                        "name": "getAllBids",
-                        "outputs": [{
-                            "components": [
-                                { "internalType": "uint256", "name": "totalAmount", "type": "uint256" },
-                                { "internalType": "string", "name": "urlString", "type": "string" },
+                        inputs: [],
+                        name: "getAllBids",
+                        outputs: [{
+                            components: [
+                                { internalType: "uint256", name: "totalAmount", type: "uint256" },
+                                { internalType: "string", name: "urlString", type: "string" },
                                 {
-                                    "components": [
-                                        { "internalType": "address", "name": "contributor", "type": "address" },
-                                        { "internalType": "uint256", "name": "amount", "type": "uint256" },
-                                        { "internalType": "uint256", "name": "timestamp", "type": "uint256" }
+                                    components: [
+                                        { internalType: "address", name: "contributor", type: "address" },
+                                        { internalType: "uint256", name: "amount", type: "uint256" },
+                                        { internalType: "uint256", name: "timestamp", type: "uint256" }
                                     ],
-                                    "internalType": "struct AuctionTypesV4.BidContribution[]",
-                                    "name": "contributions",
-                                    "type": "tuple[]"
+                                    internalType: "struct AuctionTypesV4.BidContribution[]",
+                                    name: "contributions",
+                                    type: "tuple[]"
                                 }
                             ],
-                            "internalType": "struct AuctionTypesV4.Bid[]",
-                            "name": "",
-                            "type": "tuple[]"
+                            internalType: "struct AuctionTypesV4.Bid[]",
+                            name: "",
+                            type: "tuple[]"
                         }],
-                        "stateMutability": "view",
-                        "type": "function"
+                        stateMutability: "view",
+                        type: "function"
                     }],
                     functionName: 'getAllBids'
                 });
 
-                console.log('Raw chain bids:', rawBids);
+                console.log('Raw bids from chain:', rawBids);
 
                 if (rawBids && rawBids.length > 0) {
                     this.bids = rawBids.map(bid => ({
@@ -65,43 +81,18 @@ document.addEventListener('alpine:init', () => {
                         contributors: bid.contributions.map(c => c.contributor.toLowerCase()),
                         fact: null
                     }));
-                    console.log(`REAL bids loaded: ${this.bids.length} bids`);
+                    console.log(`Loaded ${this.bids.length} REAL bids from chain!`);
                 } else {
-                    throw new Error('Empty response from chain');
+                    throw new Error('Empty response');
                 }
             } catch (error) {
-                console.warn('Chain fetch failed or empty — using current live top bids');
+                console.warn('Chain fetch failed — using current top bids (auction #285)');
                 this.bids = [
-                    {
-                        url: 'https://farcaster.xyz/miniapps/uaKwcOvUry8F/neynartodes',
-                        amount: 360000000,
-                        contributors: ['0x8b13d663acbe3a56e06e515d05e25b1e12cb53a5'], // @cb91waverider
-                        fact: null
-                    },
-                    {
-                        url: 'https://farc.io/randomref',
-                        amount: 355000000,
-                        contributors: ['0xpanik_address_placeholder'], // @panik
-                        fact: null
-                    },
-                    {
-                        url: 'https://farcaster.xyz/wydeorg/0xf6f7a837',
-                        amount: 350000000,
-                        contributors: ['0xwydeorg_address_placeholder'], // @wydeorg
-                        fact: null
-                    },
-                    {
-                        url: 'https://contentmarketcap.com/coins/0x3ec2156D4c0A9CBdAB4a016633b7BcF6a8d68Ea2',
-                        amount: 316000000,
-                        contributors: ['0xgarrett_address_placeholder'],
-                        fact: null
-                    },
-                    {
-                        url: 'https://farcaster.xyz/miniapps/KdCXV0aKWcm6/framedl',
-                        amount: 251000000,
-                        contributors: ['0xlazyfrank_address_placeholder'],
-                        fact: null
-                    }
+                    { url: 'https://farcaster.xyz/miniapps/uaKwcOvUry8F/neynartodes', amount: 360000000, contributors: ['0x8b13d663acbe3a56e06e515d05e25b1e12cb53a5'], fact: null },
+                    { url: 'https://farc.io/randomref', amount: 355000000, contributors: ['0xpanik placeholder'], fact: null },
+                    { url: 'https://farcaster.xyz/wydeorg/0xf6f7a837', amount: 350000000, contributors: ['0xwydeorg placeholder'], fact: null },
+                    { url: 'https://contentmarketcap.com/coins/0x3ec2156D4c0A9CBdAB4a016633b7BcF6a8d68Ea2', amount: 316000000, contributors: ['0xgarrett placeholder'], fact: null },
+                    { url: 'https://farcaster.xyz/miniapps/KdCXV0aKWcm6/framedl', amount: 251000000, contributors: ['0xlazyfrank placeholder'], fact: null }
                 ];
             }
 
@@ -138,13 +129,13 @@ document.addEventListener('alpine:init', () => {
                 this.modalOpen = false;
                 this.loadBids();
             } catch (e) {
-                alert('DB not connected yet');
+                alert('DB not ready yet');
             }
         },
 
-        get claimText() { return 'Login for $FACTS claims (next update)'; },
+        get claimText() { return 'Login to claim $FACTS'; },
         get claimClass() { return 'bg-gray-700 text-gray-400'; },
         get claimDisabled() { return true; },
-        claimFacts() { alert('Coming soon!'); }
+        claimFacts() { alert('Next update!'); }
     }));
 });
