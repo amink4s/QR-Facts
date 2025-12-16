@@ -11,7 +11,6 @@
     <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/viem@2.x/dist/viem.min.js"></script>
     <script src="https://auth.farcaster.xyz/bundle/auth-kit.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/viem@2.x/dist/viem.min.js"></script>
     <style>
         body { background: #0f0f0f; color: white; font-family: 'Inter', sans-serif; }
         .neon { color: #a855f7; }
@@ -24,8 +23,6 @@
     <!-- Header (unchanged) -->
     <div class="text-center mb-8">
         <h1 class="text-3xl font-bold neon mb-2">QR Facts</h1>
-        <p class="text-gray-400 mb-4">Daily Bidder Deep Dives • Powered by $FACTS</p>
-
         <template x-if="!user.username">
             <p class="text-gray-400">Login to view & claim</p>
             <button @click="login()" class="bg-neon text-black px-6 py-3 rounded-full font-bold">Login with Farcaster</button>
