@@ -1,3 +1,4 @@
+import { sdk } from 'https://miniapps.farcaster.xyz/sdk.js';  // ESM import (works because script is module)
 document.addEventListener('alpine:init', () => {
     Alpine.data('app', () => ({
         user: { username: '', pfp: '', score: 0, wallet: '', fid: null },
@@ -120,6 +121,12 @@ document.addEventListener('alpine:init', () => {
             }));
 
             this.loading = false;
+            // Hide splash screen once everything is loaded
+            try {
+                await sdk.actions.ready();
+            } catch (e) {
+                console.log('Not in Mini App environment or SDK not ready');
+            }
         },
 
         isMyBid(bid) {

@@ -1,14 +1,12 @@
 <!DOCTYPE html>
 <html lang="en" class="dark">
 <head>
-    <!-- Add these in <head>, right after <title> or existing metas -->
-<meta name="fc:miniapp" content='{"version":"1","imageUrl":"https://qr-facts.vercel.app/image.png","button":{"title":"qr facts","action":{"type":"launch_miniapp","name":"qr facts","splashImageUrl":"https://qr-facts.vercel.app/splash.png","splashBackgroundColor":"#FFFFFF"}}}' />
-
-<!-- For backward compatibility with older clients -->
-<meta name="fc:frame" content='{"version":"1","imageUrl":"https://qr-facts.vercel.app/image.png","button":{"title":"qr facts","action":{"type":"launch_frame","name":"qr facts","splashImageUrl":"https://qr-facts.vercel.app/splash.png","splashBackgroundColor":"#FFFFFF"}}}' />
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>QR Facts</title>
+    <meta name="fc:miniapp" content='{"version":"1","imageUrl":"https://qr-facts.vercel.app/image.png","button":{"title":"qr facts","action":{"type":"launch_miniapp","name":"qr facts","splashImageUrl":"https://qr-facts.vercel.app/splash.png","splashBackgroundColor":"#FFFFFF"}}}' />
+    <meta name="fc:frame" content='{"version":"1","imageUrl":"https://qr-facts.vercel.app/image.png","button":{"title":"qr facts","action":{"type":"launch_frame","name":"qr facts","splashImageUrl":"https://qr-facts.vercel.app/splash.png","splashBackgroundColor":"#FFFFFF"}}}' />
+    <script type="module" src="https://miniapps.farcaster.xyz/sdk.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/viem@2.x/dist/viem.min.js"></script>
