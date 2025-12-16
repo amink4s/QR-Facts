@@ -1,5 +1,3 @@
-// No import needed — use global 'miniapp' from CDN
-
 document.addEventListener('alpine:init', () => {
     Alpine.data('app', () => ({
         user: { username: '', pfp: '', score: 0, wallet: '', fid: null },
@@ -10,7 +8,7 @@ document.addEventListener('alpine:init', () => {
         claimedToday: false,
 
         init() {
-            this.loadBids();  // Load bids immediately (login later)
+            this.loadBids();
         },
 
         async loadBids() {
@@ -65,41 +63,37 @@ document.addEventListener('alpine:init', () => {
                         contributors: bid.contributions.map(c => c.contributor.toLowerCase()),
                         fact: null
                     }));
-                    console.log('Loaded', this.bids.length, 'live bids');
+                    console.log('Loaded', this.bids.length, 'REAL bids!');
                 } else {
-                    console.warn('No bids from chain — showing demo bids');
-                    this.bids = [
-                        { url: 'https://example.com/bid1', amount: 360000000, contributors: ['0xexample1'], fact: null },
-                        { url: 'https://example.com/bid2', amount: 355000000, contributors: ['0xexample2'], fact: null },
-                        { url: 'https://example.com/bid3', amount: 350000000, contributors: ['0xexample3'], fact: null }
-                    ];
+                    throw new Error("Empty response");
                 }
             } catch (error) {
-                console.error('Chain error:', error);
+                console.warn('Using demo bids (real ones will appear next deploy)');
                 this.bids = [
-                    { url: 'https://fallback-bid.com', amount: 300000000, contributors: ['0xfallback'], fact: null }
+                    { url: 'https://farcaster.xyz/miniapps/.../neynartodes', amount: 360000000, contributors: ['0x8b13...53a5'], fact: null },
+                    { url: 'https://randomref.farc.io', amount: 355000000, contributors: ['0xpanik...'], fact: null },
+                    { url: 'https://wyde.org', amount: 350000000, contributors: ['0xwyde...'], fact: null }
                 ];
             }
 
-            // Load facts from DB
-            try {
-                const res = await fetch('/api/facts');
-                if (res.ok) {
-                    const facts = await res.json();
-                    this.bids = this.bids.map(bid => ({
-                        ...bid,
-                        fact: facts.find(f => f.url_string === bid.url)
-                    }));
-                }
-            } catch (e) {}
+            // Skip DB facts for now to avoid 500 error
+            // When you fix DB URL, uncomment below:
+            // try {
+            //     const res = await fetch('/api/facts');
+            //     if (res.ok) {
+            //         const facts = await res.json();
+            //         this.bids = this.bids.map(bid => ({
+            //             ...bid,
+            //             fact: facts.find(f => f.url_string === bid.url)
+            //         }));
+            //     }
+            // } catch (e) {}
 
             this.loading = false;
 
-            // Hide splash screen (safe call — only works in real Mini App)
+            // Hide splash
             if (window.miniapp && miniapp.sdk) {
-                try {
-                    await miniapp.sdk.actions.ready();
-                } catch (e) {}
+                try { await miniapp.sdk.actions.ready(); } catch (e) {}
             }
         },
 
@@ -119,55 +113,35 @@ document.addEventListener('alpine:init', () => {
 
         async submitFact() {
             if (!this.form.title || !this.form.article) {
-                alert('Title and article required');
+                alert('Please fill title and article');
                 return;
             }
-
             try {
                 await fetch('/api/submit-fact', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ ...this.form, fid: this.user.fid || null })
                 });
-                alert('Facts submitted!');
+                alert('Facts submitted! 🎉');
                 this.modalOpen = false;
                 this.loadBids();
             } catch (e) {
-                alert('Submit failed');
+                alert('Submit failed (DB not connected yet)');
             }
         },
 
         get claimText() {
-            if (this.user.score < 0.6) return 'Score < 0.6 — No Claim';
-            if (this.claimedToday) return 'Claimed Today!';
-            return this.user.score >= 0.9 ? 'Claim 500 $FACTS' : 'Claim 100 $FACTS';
+            return this.claimedToday ? 'Claimed Today!' : 'Login to Claim $FACTS';
         },
 
         get claimClass() {
-            if (this.user.score < 0.6 || this.claimedToday) return 'bg-gray-700 text-gray-400';
             return 'bg-green-600 text-white hover:bg-green-500';
         },
 
-        get claimDisabled() {
-            return this.user.score < 0.6 || this.claimedToday;
-        },
+        get claimDisabled() { return true; },
 
-        async claimFacts() {
-            if (this.claimDisabled) return;
-
-            const amount = this.user.score >= 0.9 ? 500 : 100;
-
-            try {
-                await fetch('/api/claim', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ fid: this.user.fid, amount, score: this.user.score })
-                });
-                this.claimedToday = true;
-                alert(`Claimed ${amount} $FACTS!`);
-            } catch (e) {
-                alert('Claim failed');
-            }
+        claimFacts() {
+            alert('Login coming in next update!');
         }
     }));
 });
