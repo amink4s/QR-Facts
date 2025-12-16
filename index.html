@@ -17,7 +17,7 @@
     </style>
 </head>
 <body class="min-h-screen p-4" x-data="app" x-init="init()">
-    <!-- Header -->
+    <!-- Header (unchanged) -->
     <div class="text-center mb-8">
         <h1 class="text-3xl font-bold neon mb-2">QR Facts</h1>
         <p class="text-gray-400 mb-4">Daily Bidder Deep Dives • Powered by $FACTS</p>
@@ -50,23 +50,24 @@
 
     <!-- Bids List -->
     <div class="max-w-md mx-auto space-y-4" x-show="user.username">
-        <p x-show="loading" class="text-center text-gray-400">Loading today's bidders...</p>
+        <p x-show="loading" class="text-center text-gray-400">Loading today's bidders from chain...</p>
 
         <template x-for="bid in bids" :key="bid.url">
             <div class="bg-gray-900 p-5 rounded-lg border border-gray-700">
-                <h3 class="font-bold neon text-lg" x-text="bid.name || 'Anonymous'"></h3>
+                <h3 class="font-bold neon text-lg">
+                    <span x-text="bid.contributors.length > 1 ? 'Group Bid (' + bid.contributors.length + ')' : bid.contributors[0]?.slice(0,6) + '...' + bid.contributors[0]?.slice(-4)"></span>
+                </h3>
                 <p class="text-sm text-gray-400 mt-1">
-                    Bid: $<span x-text="(bid.amount / 1e6).toFixed(2)"></span> USDC
+                    Total Bid: $<span x-text="(bid.amount / 1000000).toFixed(2)"></span> USDC
                 </p>
-                <p class="text-sm text-gray-400">
-                    Link: <a :href="bid.url" target="_blank" class="neon underline" x-text="bid.url"></a>
+                <p class="text-sm text-gray-400 break-all">
+                    Redirect URL: <a :href="bid.url" target="_blank" class="neon underline" x-text="bid.url"></a>
                 </p>
 
                 <template x-if="bid.fact">
                     <div class="mt-4 p-3 bg-gray-800 rounded">
-                        <h4 class="font-semibold mb-2">Fact Sheet</h4>
-                        <p class="text-sm" x-text="bid.fact.title"></p>
-                        <p class="text-sm mt-2" x-text="bid.fact.article"></p>
+                        <h4 class="font-semibold mb-2" x-text="bid.fact.title || 'Fact Sheet'"></h4>
+                        <p class="text-sm" x-text="bid.fact.article"></p>
                         <p class="text-xs text-gray-500 mt-2" x-if="bid.fact.ca_or_link">CA/Link: <span x-text="bid.fact.ca_or_link"></span></p>
                     </div>
                 </template>
@@ -87,7 +88,7 @@
         <p x-show="!loading && bids.length === 0" class="text-center text-gray-400">No active bids today</p>
     </div>
 
-    <!-- Submission Modal -->
+    <!-- Submission Modal (unchanged) -->
     <div class="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50" x-show="modalOpen" @click="modalOpen = false">
         <div class="bg-gray-900 p-6 rounded-lg max-w-lg w-full mx-4" @click.stop>
             <h2 class="text-2xl font-bold neon mb-4">Add Your Facts</h2>

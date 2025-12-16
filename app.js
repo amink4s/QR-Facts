@@ -60,28 +60,55 @@ document.addEventListener('alpine:init', () => {
         async loadBids() {
             this.loading = true;
 
-            // Scrape qrcoin.fun via CORS proxy + parse HTML
-            const proxy = 'https://api.allorigins.win/raw?url=';
-            const html = await fetch(proxy + encodeURIComponent('https://qrcoin.fun/')).then(r => r.text());
-
-            const parser = new DOMParser();
-            const doc = parser.parseFromString(html, 'text/html');
-            const bidElements = doc.querySelectorAll('.bid-item'); // Actual class may vary — inspect & update if needed
-
-            const rawBids = [];
-            bidElements.forEach(el => {
-                const name = el.querySelector('.username')?.textContent.trim() || 'Anonymous';
-                const amountText = el.querySelector('.amount')?.textContent.trim() || '0';
-                const amount = parseFloat(amountText.replace(/[^0-9.]/g, '')) * 1e6; // USDC
-                const url = el.querySelector('a')?.href || '';
-
-                // Contributors (multiple addresses possible)
-                const contributors = Array.from(el.querySelectorAll('.contributor-address')).map(c => c.textContent.trim().toLowerCase());
-
-                if (url) rawBids.push({ name, amount, url, contributors: contributors.length ? contributors : [url.slice(0,42).toLowerCase()] });
+            // On-chain fetch using viem
+            const { createPublicClient, http } = viem;
+            const client = createPublicClient({
+                chain: viem.base,
+                transport: http()
             });
 
-            this.bids = rawBids;
+            const contractAddress = '0x6A0FB6dfDA897dAe3c69D06d5D6B5d6b251281da';
+
+            const rawBids = await client.readContract({
+                address: contractAddress,
+                abi: [
+                    {
+                        "inputs": [],
+                        "name": "getAllBids",
+                        "outputs": [
+                            {
+                                "components": [
+                                    { "internalType": "uint256", "name": "totalAmount", "type": "uint256" },
+                                    { "internalType": "string", "name": "urlString", "type": "string" },
+                                    {
+                                        "components": [
+                                            { "internalType": "address", "name": "contributor", "type": "address" },
+                                            { "internalType": "uint256", "name": "amount", "type": "uint256" },
+                                            { "internalType": "uint256", "name": "timestamp", "type": "uint256" }
+                                        ],
+                                        "internalType": "struct AuctionTypesV4.BidContribution[]",
+                                        "name": "contributions",
+                                        "type": "tuple[]"
+                                    }
+                                ],
+                                "internalType": "struct AuctionTypesV4.Bid[]",
+                                "name": "",
+                                "type": "tuple[]"
+                            }
+                        ],
+                        "stateMutability": "view",
+                        "type": "function"
+                    }
+                ],
+                functionName: 'getAllBids'
+            });
+
+            this.bids = rawBids.map(bid => ({
+                url: bid.urlString,
+                amount: Number(bid.totalAmount),
+                contributors: bid.contributions.map(c => c.contributor.toLowerCase()),
+                fact: null
+            }));
 
             // Load facts from DB
             const factsRes = await fetch('/api/facts');
@@ -89,7 +116,7 @@ document.addEventListener('alpine:init', () => {
 
             this.bids = this.bids.map(bid => ({
                 ...bid,
-                fact: facts.find(f => f.url_string === bid.url && new Date(f.auction_date).toDateString() === new Date().toDateString())
+                fact: facts.find(f => f.url_string === bid.url)
             }));
 
             this.loading = false;
@@ -103,7 +130,7 @@ document.addEventListener('alpine:init', () => {
             this.form = {
                 title: '',
                 article: '',
-                ca: bid.url.startsWith('0x') ? bid.url : '',
+                ca: bid.url.startsWith('0x') && bid.url.length === 42 ? bid.url : '',
                 url: bid.url
             };
             this.modalOpen = true;
