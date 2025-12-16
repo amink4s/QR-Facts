@@ -13,7 +13,7 @@ document.addEventListener('alpine:init', () => {
 
         // Start app immediately
         init() {
-            this.loadBids(); // Load bids first (login can come later)
+            this.loadBids(); // Load bids first
         },
 
         async loadBids() {
@@ -44,12 +44,12 @@ document.addEventListener('alpine:init', () => {
                                         { internalType: "uint256", name: "amount", type: "uint256" },
                                         { internalType: "uint256", name: "timestamp", type: "uint256" }
                                     ],
-                                    internalType: "struct QRAuctionV4.BidContribution[]",
+                                    internalType: "struct AuctionTypesV4.BidContribution[]",  // Fixed namespace
                                     name: "contributions",
                                     type: "tuple[]"
                                 }
                             ],
-                            internalType: "struct QRAuctionV4.Bid[]",
+                            internalType: "struct AuctionTypesV4.Bid[]",  // Fixed struct name
                             name: "",
                             type: "tuple[]"
                         }],
@@ -68,45 +68,17 @@ document.addEventListener('alpine:init', () => {
                         contributors: bid.contributions.map(c => c.contributor.toLowerCase()),
                         fact: null
                     }));
-                    console.log('Successfully parsed real bids:', this.bids);
+                    console.log('Live bids loaded:', this.bids.length, 'bids');
                 } else {
-                    console.warn('No bids from chain — using fallback demo bids');
-                    // Fallback: current live bids as of Dec 16, 2025 (so UI works)
-                    this.bids = [
-                        {
-                            url: 'https://farcaster.xyz/miniapps/uaKwcOvUry8F/neynartodes',
-                            amount: 360000000,
-                            contributors: ['0x8b13d663acbe3a56e06e515d05e25b1e12cb53a5'], // example wallet
-                            fact: null
-                        },
-                        {
-                            url: 'https://farc.io/randomref',
-                            amount: 355000000,
-                            contributors: ['0x3f0c3e47e9e5b8f3c82e7d3b8b3c2e7d3b8b3c2e'],
-                            fact: null
-                        },
-                        {
-                            url: 'https://wyde.org/some-link',
-                            amount: 350000000,
-                            contributors: ['0x1234567890123456789012345678901234567890'],
-                            fact: null
-                        }
-                    ];
+                    console.warn('Chain returned no bids — using fallback');
+                    this.loadFallbackBids();
                 }
             } catch (error) {
-                console.error('Error fetching bids from chain:', error);
-                // Fallback demo bids on error
-                this.bids = [
-                    {
-                        url: 'https://example-bid-1.com',
-                        amount: 360000000,
-                        contributors: ['0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef'],
-                        fact: null
-                    }
-                ];
+                console.error('Chain fetch failed:', error);
+                this.loadFallbackBids();
             }
 
-            // Load existing facts from your DB
+            // Load facts from DB
             try {
                 const res = await fetch('/api/facts');
                 if (res.ok) {
@@ -117,19 +89,26 @@ document.addEventListener('alpine:init', () => {
                     }));
                 }
             } catch (e) {
-                console.warn('Could not load facts from DB:', e);
+                console.warn('DB facts load skipped:', e);
             }
 
             this.loading = false;
 
-            // Hide Mini App splash screen
+            // Hide splash in Mini App
             if (typeof sdk !== 'undefined') {
                 try {
                     await sdk.actions.ready();
-                } catch (e) {
-                    console.debug('sdk.ready() not available');
-                }
+                } catch (e) {}
             }
+        },
+
+        loadFallbackBids() {
+            // Current live bids (Dec 16, 2025) — UI will show these if chain fails
+            this.bids = [
+                { url: 'https://farcaster.miniapp/neynartodes', amount: 360000000, contributors: ['0x8b13d663acbe3a56e06e515d05e25b1e12cb53a5'], fact: null },
+                { url: 'https://randomref.farc.io', amount: 355000000, contributors: ['0xpanikaddresshere'], fact: null },
+                { url: 'https://wyde.org/link', amount: 350000000, contributors: ['0xwydeorgaddress'], fact: null }
+            ];
         },
 
         isMyBid(bid) {
@@ -148,7 +127,7 @@ document.addEventListener('alpine:init', () => {
 
         async submitFact() {
             if (!this.form.title || !this.form.article) {
-                alert('Please fill title and article');
+                alert('Fill title and article');
                 return;
             }
 
@@ -158,9 +137,9 @@ document.addEventListener('alpine:init', () => {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ ...this.form, fid: this.user.fid || null })
                 });
-                alert('Facts submitted successfully!');
+                alert('Facts submitted!');
             } catch (e) {
-                alert('Submit failed — check console');
+                alert('Submit error');
                 console.error(e);
             }
 
@@ -168,7 +147,6 @@ document.addEventListener('alpine:init', () => {
             this.loadBids();
         },
 
-        // Claim button logic
         get claimText() {
             if (this.user.score < 0.6) return 'Score < 0.6 — No Claim';
             if (this.claimedToday) return 'Claimed Today!';
@@ -196,17 +174,10 @@ document.addEventListener('alpine:init', () => {
                     body: JSON.stringify({ fid: this.user.fid, amount, score: this.user.score })
                 });
                 this.claimedToday = true;
-                alert(`Claimed ${amount} $FACTS! (logged)`);
+                alert(`Claimed ${amount} $FACTS!`);
             } catch (e) {
                 alert('Claim failed');
-                console.error(e);
             }
-        },
-
-        // Login function (you can re-enable later)
-        async login() {
-            // Placeholder — re-enable when ready
-            alert('Login coming soon');
         }
     }));
 });
