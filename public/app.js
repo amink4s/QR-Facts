@@ -1,9 +1,7 @@
-// Import Mini App SDK for ready()
-import { sdk } from 'https://miniapps.farcaster.xyz/sdk.js';
+// No import needed — use global 'miniapp' from CDN
 
 document.addEventListener('alpine:init', () => {
     Alpine.data('app', () => ({
-        // Core state
         user: { username: '', pfp: '', score: 0, wallet: '', fid: null },
         bids: [],
         loading: true,
@@ -11,9 +9,8 @@ document.addEventListener('alpine:init', () => {
         form: { title: '', article: '', ca: '', url: '' },
         claimedToday: false,
 
-        // Start app immediately
         init() {
-            this.loadBids(); // Load bids first
+            this.loadBids();  // Load bids immediately (login later)
         },
 
         async loadBids() {
@@ -44,12 +41,12 @@ document.addEventListener('alpine:init', () => {
                                         { internalType: "uint256", name: "amount", type: "uint256" },
                                         { internalType: "uint256", name: "timestamp", type: "uint256" }
                                     ],
-                                    internalType: "struct AuctionTypesV4.BidContribution[]",  // Fixed namespace
+                                    internalType: "struct AuctionTypesV4.BidContribution[]",
                                     name: "contributions",
                                     type: "tuple[]"
                                 }
                             ],
-                            internalType: "struct AuctionTypesV4.Bid[]",  // Fixed struct name
+                            internalType: "struct AuctionTypesV4.Bid[]",
                             name: "",
                             type: "tuple[]"
                         }],
@@ -59,7 +56,7 @@ document.addEventListener('alpine:init', () => {
                     functionName: 'getAllBids'
                 });
 
-                console.log('Raw bids from contract:', rawBids);
+                console.log('Raw bids from chain:', rawBids);
 
                 if (rawBids && rawBids.length > 0) {
                     this.bids = rawBids.map(bid => ({
@@ -68,14 +65,20 @@ document.addEventListener('alpine:init', () => {
                         contributors: bid.contributions.map(c => c.contributor.toLowerCase()),
                         fact: null
                     }));
-                    console.log('Live bids loaded:', this.bids.length, 'bids');
+                    console.log('Loaded', this.bids.length, 'live bids');
                 } else {
-                    console.warn('Chain returned no bids — using fallback');
-                    this.loadFallbackBids();
+                    console.warn('No bids from chain — showing demo bids');
+                    this.bids = [
+                        { url: 'https://example.com/bid1', amount: 360000000, contributors: ['0xexample1'], fact: null },
+                        { url: 'https://example.com/bid2', amount: 355000000, contributors: ['0xexample2'], fact: null },
+                        { url: 'https://example.com/bid3', amount: 350000000, contributors: ['0xexample3'], fact: null }
+                    ];
                 }
             } catch (error) {
-                console.error('Chain fetch failed:', error);
-                this.loadFallbackBids();
+                console.error('Chain error:', error);
+                this.bids = [
+                    { url: 'https://fallback-bid.com', amount: 300000000, contributors: ['0xfallback'], fact: null }
+                ];
             }
 
             // Load facts from DB
@@ -88,27 +91,16 @@ document.addEventListener('alpine:init', () => {
                         fact: facts.find(f => f.url_string === bid.url)
                     }));
                 }
-            } catch (e) {
-                console.warn('DB facts load skipped:', e);
-            }
+            } catch (e) {}
 
             this.loading = false;
 
-            // Hide splash in Mini App
-            if (typeof sdk !== 'undefined') {
+            // Hide splash screen (safe call — only works in real Mini App)
+            if (window.miniapp && miniapp.sdk) {
                 try {
-                    await sdk.actions.ready();
+                    await miniapp.sdk.actions.ready();
                 } catch (e) {}
             }
-        },
-
-        loadFallbackBids() {
-            // Current live bids (Dec 16, 2025) — UI will show these if chain fails
-            this.bids = [
-                { url: 'https://farcaster.miniapp/neynartodes', amount: 360000000, contributors: ['0x8b13d663acbe3a56e06e515d05e25b1e12cb53a5'], fact: null },
-                { url: 'https://randomref.farc.io', amount: 355000000, contributors: ['0xpanikaddresshere'], fact: null },
-                { url: 'https://wyde.org/link', amount: 350000000, contributors: ['0xwydeorgaddress'], fact: null }
-            ];
         },
 
         isMyBid(bid) {
@@ -127,7 +119,7 @@ document.addEventListener('alpine:init', () => {
 
         async submitFact() {
             if (!this.form.title || !this.form.article) {
-                alert('Fill title and article');
+                alert('Title and article required');
                 return;
             }
 
@@ -138,13 +130,11 @@ document.addEventListener('alpine:init', () => {
                     body: JSON.stringify({ ...this.form, fid: this.user.fid || null })
                 });
                 alert('Facts submitted!');
+                this.modalOpen = false;
+                this.loadBids();
             } catch (e) {
-                alert('Submit error');
-                console.error(e);
+                alert('Submit failed');
             }
-
-            this.modalOpen = false;
-            this.loadBids();
         },
 
         get claimText() {
