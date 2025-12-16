@@ -63,71 +63,84 @@ document.addEventListener('alpine:init', () => {
         async loadBids() {
             this.loading = true;
 
-            // On-chain fetch using viem
-            const { createPublicClient, http } = viem;
-            const client = createPublicClient({
-                chain: viem.base,
-                transport: http()
-            });
+            try {
+                const { createPublicClient, http } = viem;
+                const client = createPublicClient({
+                    chain: viem.base,
+                    transport: http('https://mainnet.base.org')  // Explicit public RPC
+                });
 
-            const contractAddress = '0x6A0FB6dfDA897dAe3c69D06d5D6B5d6b251281da';
+                const contractAddress = '0x6A0FB6dfDA897dAe3c69D06d5D6B5d6b251281da'.toLowerCase();
 
-            const rawBids = await client.readContract({
-                address: contractAddress,
-                abi: [
-                    {
+                const rawBids = await client.readContract({
+                    address: contractAddress,
+                    abi: [{
                         "inputs": [],
                         "name": "getAllBids",
-                        "outputs": [
-                            {
-                                "components": [
-                                    { "internalType": "uint256", "name": "totalAmount", "type": "uint256" },
-                                    { "internalType": "string", "name": "urlString", "type": "string" },
-                                    {
-                                        "components": [
-                                            { "internalType": "address", "name": "contributor", "type": "address" },
-                                            { "internalType": "uint256", "name": "amount", "type": "uint256" },
-                                            { "internalType": "uint256", "name": "timestamp", "type": "uint256" }
-                                        ],
-                                        "internalType": "struct AuctionTypesV4.BidContribution[]",
-                                        "name": "contributions",
-                                        "type": "tuple[]"
-                                    }
-                                ],
-                                "internalType": "struct AuctionTypesV4.Bid[]",
-                                "name": "",
-                                "type": "tuple[]"
-                            }
-                        ],
+                        "outputs": [{
+                            "components": [
+                                { "internalType": "uint256", "name": "totalAmount", "type": "uint256" },
+                                { "internalType": "string", "name": "urlString", "type": "string" },
+                                {
+                                    "components": [
+                                        { "internalType": "address", "name": "contributor", "type": "address" },
+                                        { "internalType": "uint256", "name": "amount", "type": "uint256" },
+                                        { "internalType": "uint256", "name": "timestamp", "type": "uint256" }
+                                    ],
+                                    "internalType": "struct AuctionTypesV4.BidContribution[]",
+                                    "name": "contributions",
+                                    "type": "tuple[]"
+                                }
+                            ],
+                            "internalType": "struct AuctionTypesV4.Bid[]",
+                            "name": "",
+                            "type": "tuple[]"
+                        }],
                         "stateMutability": "view",
                         "type": "function"
-                    }
-                ],
-                functionName: 'getAllBids'
-            });
+                    }],
+                    functionName: 'getAllBids'
+                });
 
-            this.bids = rawBids.map(bid => ({
-                url: bid.urlString,
-                amount: Number(bid.totalAmount),
-                contributors: bid.contributions.map(c => c.contributor.toLowerCase()),
-                fact: null
-            }));
+                console.log('Raw bids from contract:', rawBids);  // <--- DEBUG LINE
 
-            // Load facts from DB
-            const factsRes = await fetch('/api/facts');
-            const facts = await factsRes.json();
+                if (!rawBids || rawBids.length === 0) {
+                    console.warn('getAllBids returned empty — check ABI or contract state');
+                    this.bids = [];
+                } else {
+                    this.bids = rawBids.map(bid => ({
+                        url: bid.urlString || bid[1],  // Fallback indexing if named fails
+                        amount: Number(bid.totalAmount || bid[0]),
+                        contributors: (bid.contributions || bid[2] || []).map(c => c.contributor?.toLowerCase() || c[0]?.toLowerCase()),
+                        fact: null
+                    }));
+                    console.log('Parsed bids:', this.bids);  // <--- DEBUG LINE
+                }
+            } catch (error) {
+                console.error('Error fetching bids:', error);
+                alert('Chain fetch failed — check console for details');
+                this.bids = [];
+            }
 
-            this.bids = this.bids.map(bid => ({
-                ...bid,
-                fact: facts.find(f => f.url_string === bid.url)
-            }));
+            // Load facts from DB (unchanged)
+            try {
+                const factsRes = await fetch('/api/facts');
+                const facts = await factsRes.json();
+                this.bids = this.bids.map(bid => ({
+                    ...bid,
+                    fact: facts.find(f => f.url_string === bid.url)
+                }));
+            } catch (e) {
+                console.error('Facts load error:', e);
+            }
 
             this.loading = false;
-            // Hide splash screen once everything is loaded
-            try {
-                await sdk.actions.ready();
-            } catch (e) {
-                console.log('Not in Mini App environment or SDK not ready');
+
+            // ready() call (unchanged)
+            if (typeof sdk !== 'undefined') {
+                try {
+                    await sdk.actions.ready();
+                } catch (e) {}
             }
         },
 
