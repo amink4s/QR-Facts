@@ -3,22 +3,41 @@ document.addEventListener('alpine:init', () => {
         user: { username: '', pfp: '', score: 0, wallet: '', fid: null, loggedIn: false },
         bids: [],
         loading: true,
-        
-        // Reader State
         readerOpen: false,
         activeBid: null,
         timerStarted: false,
         canFinish: false,
         countdown: 7,
-
-        // Edit State
         editModalOpen: false,
         form: { title: '', article: '', ca: '', url: '' },
 
         async init() {
+            // Wait for Viem to be available globally
+            const waitForViem = () => {
+                return new Promise((resolve) => {
+                    if (window.viem) return resolve();
+                    const interval = setInterval(() => {
+                        if (window.viem) {
+                            clearInterval(interval);
+                            resolve();
+                        }
+                    }, 50);
+                });
+            };
+
+            await waitForViem();
+
+            // Notify Farcaster we are ready to hide splash screen
             if (window.farcaster?.sdk) {
-                await window.farcaster.sdk.actions.ready();
+                try {
+                    await window.farcaster.sdk.actions.ready();
+                    console.log("Farcaster SDK Ready");
+                } catch (e) {
+                    console.error("SDK Ready Error", e);
+                }
             }
+
+            // Start loading data
             await this.loadBids();
             await this.autoLogin();
         },
@@ -48,16 +67,13 @@ document.addEventListener('alpine:init', () => {
                         loggedIn: true
                     };
 
-                    // 1. Sync user profile to DB
                     await fetch('/api/user', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(this.user)
                     });
 
-                    // 2. Check which bids they've already claimed
                     await this.checkExistingClaims();
-
                 } catch (e) { console.error("Login sync failed", e); }
             }
         },
@@ -68,11 +84,10 @@ document.addEventListener('alpine:init', () => {
                 const res = await fetch(`/api/check-claims?fid=${this.user.fid}`);
                 const { claimedUrls } = await res.json();
                 
-                // Update the state of each bid if the URL is in the claimed list
                 this.bids = this.bids.map(bid => ({
                     ...bid,
                     claimed: claimedUrls.includes(bid.url),
-                    hasRead: claimedUrls.includes(bid.url) // If claimed, they must have read it
+                    hasRead: claimedUrls.includes(bid.url)
                 }));
             } catch (e) { console.error("Claim check failed", e); }
         },
@@ -80,7 +95,8 @@ document.addEventListener('alpine:init', () => {
         async loadBids() {
             this.loading = true;
             try {
-                const { createPublicClient, http } = viem;
+                // Now viem is guaranteed to be defined
+                const { createPublicClient, http } = window.viem;
                 const baseChain = { id: 8453, name: 'Base', network: 'base', nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 }, rpcUrls: { default: { http: ['https://mainnet.base.org'] } } };
                 const client = createPublicClient({ chain: baseChain, transport: http() });
 
@@ -108,7 +124,13 @@ document.addEventListener('alpine:init', () => {
                     };
                 }).sort((a, b) => b.amount - a.amount);
 
-            } catch (error) { console.error('Load error', error); } 
+            } catch (error) { 
+                console.error('Load error', error); 
+                // Fallback for visual testing
+                this.bids = [
+                    { url: 'https://test.com', amount: 1000000, contributors: [], projectName: 'Testing', name: 'dev', hasRead: false, claiming: false, claimed: false }
+                ];
+            } 
             finally { this.loading = false; }
         },
 

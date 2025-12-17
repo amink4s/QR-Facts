@@ -6,10 +6,13 @@
     <title>QR FACTS</title>
     <meta name="fc:miniapp" content='{"version":"1","imageUrl":"https://qr-facts.vercel.app/image.png","button":{"title":"qr facts","action":{"type":"launch_miniapp","name":"qr facts"}}}' />
     
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/viem@2.x/dist/viem.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/viem@2.21.1/dist/viem.min.js"></script>
+    
     <script src="https://cdn.jsdelivr.net/npm/@farcaster/miniapp-sdk@latest/dist/index.min.js"></script>
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
 
     <style>
         [x-cloak] { display: none !important; }
@@ -101,7 +104,7 @@
                 
                 <div class="prose prose-invert max-w-none">
                     <h3 class="text-neon text-sm font-bold uppercase mb-2" x-text="activeBid?.fact?.title || 'Project Spotlight'"></h3>
-                    <p class="text-gray-300 leading-relaxed text-sm whitespace-pre-line" x-text="activeBid?.fact?.article || 'The bidder hasn\'t added details yet. Reach out to them on Farcaster!'"></p>
+                    <p class="text-gray-300 leading-relaxed text-sm whitespace-pre-line" x-text="activeBid?.fact?.article || 'No details yet.'"></p>
                 </div>
             </div>
 
@@ -132,6 +135,6 @@
         </div>
     </div>
 
-    <script src="/app.js"></script>
+    <script src="app.js"></script>
 </body>
 </html>
