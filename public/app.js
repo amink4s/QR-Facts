@@ -34,34 +34,17 @@ document.addEventListener('alpine:init', () => {
                     "event AuctionBid(uint256 indexed tokenId, address indexed bidder, uint256 indexed amount, bool extended, uint256 endTime, string urlString, string name)"
                 ], provider);
 
-                // 1. Fetch the raw bid data
+                // 1. Get raw bids first so the UI shows SOMETHING immediately
                 const rawBids = await contract.getAllBids();
 
-                // 2. Fetch all "AuctionBid" events to find the names
-                // We go back 50,000 blocks (~1 day) to find recent names
-                const filter = contract.filters.AuctionBid();
-                const events = await contract.queryFilter(filter, -50000);
-                
-                // Create a map of URL -> Name
-                const nameMap = {};
-                events.forEach(event => {
-                    if (event.args && event.args.urlString) {
-                        nameMap[event.args.urlString] = event.args.name;
-                    }
-                });
-
-                // 3. Process bids using the names found in events
                 this.bids = rawBids.map(bid => {
-                    const creatorAddr = bid.contributions[0].contributor;
-                    const url = bid.urlString;
-                    
+                    const creatorAddr = bid.contributions[0].contributor.toLowerCase();
                     return {
-                        url: url,
+                        url: bid.urlString,
                         amount: Number(bid.totalAmount),
-                        // Get name from event logs, fallback to URL or Unnamed
-                        projectName: nameMap[url] || "Unnamed Project",
-                        creatorAddress: creatorAddr.toLowerCase(),
-                        creatorUsername: creatorAddr.slice(0, 6),
+                        projectName: "Loading Name...", // Temporary
+                        creatorAddress: creatorAddr,
+                        creatorUsername: creatorAddr.slice(0, 6), // Temporary
                         hasRead: false,
                         claiming: false,
                         claimed: false,
@@ -70,14 +53,35 @@ document.addEventListener('alpine:init', () => {
                 });
 
                 this.bids.sort((a, b) => b.amount - a.amount);
-                
-                // 4. Resolve Farcaster Usernames
-                await this.resolveUsernames();
+                this.loading = false; // Show the list now
+
+                // 2. Background task: Fetch Names from Events (Try a smaller block range)
+                this.enrichProjectNames(contract);
+
+                // 3. Background task: Fetch Usernames from Neynar
+                this.resolveUsernames();
 
             } catch (error) {
                 console.error('Failed to load bids:', error);
-            } finally {
                 this.loading = false;
+            }
+        },
+
+        async enrichProjectNames(contract) {
+            try {
+                // Limit range to 10,000 blocks to avoid RPC "Unhealthy" errors
+                const events = await contract.queryFilter(contract.filters.AuctionBid(), -10000);
+                
+                events.forEach(event => {
+                    const bid = this.bids.find(b => b.url === event.args.urlString);
+                    if (bid && event.args.name) {
+                        bid.projectName = event.args.name;
+                    }
+                });
+            } catch (e) {
+                console.warn("Could not fetch on-chain names from logs, RPC is busy.");
+                // Fallback: If logs fail, show a nicer placeholder
+                this.bids.forEach(b => { if(b.projectName === "Loading Name...") b.projectName = "Project Spotlight"; });
             }
         },
 
@@ -86,14 +90,13 @@ document.addEventListener('alpine:init', () => {
             if (!addresses) return;
 
             try {
-                // Adjust this path to your actual Vercel API endpoint
                 const res = await fetch(`/api/lookup-names?addresses=${addresses}`);
-                if (!res.ok) throw new Error("API failed");
-                const data = await res.json();
+                const nameMap = await res.json();
                 
                 this.bids.forEach(bid => {
-                    if (data[bid.creatorAddress]) {
-                        bid.creatorUsername = data[bid.creatorAddress];
+                    // Match against the lowercase address key from your API
+                    if (nameMap[bid.creatorAddress]) {
+                        bid.creatorUsername = nameMap[bid.creatorAddress];
                     }
                 });
             } catch (e) { 
@@ -101,7 +104,6 @@ document.addEventListener('alpine:init', () => {
             }
         },
 
-        // --- Standard UI Logic ---
         openReader(bid) {
             this.activeBid = bid;
             this.readerOpen = true;
@@ -123,6 +125,20 @@ document.addEventListener('alpine:init', () => {
                 this.readerOpen = false;
                 this.timerStarted = false;
             }
+        },
+
+        async claim(bid) {
+            bid.claiming = true;
+            setTimeout(() => {
+                bid.claiming = false;
+                bid.claimed = true;
+                this.user.score += 10;
+            }, 1500);
+        },
+
+        isMyBid(bid) {
+            if (!this.user.wallet) return false;
+            return bid.creatorAddress === this.user.wallet.toLowerCase();
         }
     }));
 });

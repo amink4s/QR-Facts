@@ -10,9 +10,10 @@ export default async function handler(req, res) {
         const data = await response.json();
         const mapping = {};
         
-        // Neynar returns a map where the keys are the addresses
+        // IMPORTANT: The Neynar response data keys are the addresses
         Object.keys(data).forEach(addr => {
             if (data[addr] && data[addr].length > 0) {
+                // Force keys to lowercase to match the frontend mapping logic
                 mapping[addr.toLowerCase()] = data[addr][0].username;
             }
         });
