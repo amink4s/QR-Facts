@@ -51,17 +51,19 @@ document.addEventListener('alpine:init', () => {
                     loggedIn: true
                 };
 
-                console.log('Score:', score);
-
                 this.checkClaimStatus();
-            } catch (e) {
-                console.warn('Login optional');
-            }
+            } catch (e) {}
         },
 
         async loadBids() {
             this.loading = true;
             this.bids = [];
+
+            let neynarKey = null;
+            try {
+                const keyRes = await fetch('/api/neynar-key');
+                neynarKey = (await keyRes.json()).key;
+            } catch (e) {}
 
             try {
                 const { createPublicClient, http } = viem;
@@ -81,30 +83,71 @@ document.addEventListener('alpine:init', () => {
 
                 const rawBids = await client.readContract({
                     address: contractAddress,
-                    abi: [/* same as before */],
+                    abi: [{
+                        inputs: [],
+                        name: "getAllBids",
+                        outputs: [{
+                            components: [
+                                { internalType: "uint256", name: "totalAmount", type: "uint256" },
+                                { internalType: "string", name: "urlString", type: "string" },
+                                {
+                                    components: [
+                                        { internalType: "address", name: "contributor", type: "address" },
+                                        { internalType: "uint256", name: "amount", type: "uint256" },
+                                        { internalType: "uint256", name: "timestamp", type: "uint256" }
+                                    ],
+                                    internalType: "struct AuctionTypesV4.BidContribution[]",
+                                    name: "contributions",
+                                    type: "tuple[]"
+                                }
+                            ],
+                            internalType: "struct AuctionTypesV4.Bid[]",
+                            name: "",
+                            type: "tuple[]"
+                        }],
+                        stateMutability: "view",
+                        type: "function"
+                    }],
                     functionName: 'getAllBids'
                 });
 
-                this.bids = rawBids.map(bid => ({
+                let processedBids = rawBids.map(bid => ({
                     url: bid.urlString,
                     amount: Number(bid.totalAmount),
                     contributors: bid.contributions.map(c => c.contributor.toLowerCase()),
-                    name: bid.contributions.map(c => c.contributor.slice(0,6) + '...' + c.contributor.slice(-4)).join(', '),
+                    projectName: this.extractProjectName(bid.urlString),
+                    name: 'Loading...',
                     fact: null
                 }));
+
+                if (neynarKey && processedBids.length > 0) {
+                    const wallets = [...new Set(processedBids.flatMap(b => b.contributors))];
+                    const addrStr = wallets.join(',');
+                    const res = await fetch(`https://api.neynar.com/v2/farcaster/user/bulk-by-address?addresses=${addrStr}`, {
+                        headers: { api_key: neynarKey }
+                    });
+                    const data = await res.json();
+                    const map = {};
+                    (data.users || []).forEach(u => {
+                        map[u.custody_address.toLowerCase()] = `@${u.username || u.display_name || 'unknown'}`;
+                        (u.verified_addresses?.eth_addresses || []).forEach(a => map[a.toLowerCase()] = `@${u.username || u.display_name || 'unknown'}`);
+                    });
+
+                    processedBids = processedBids.map(b => ({
+                        ...b,
+                        name: b.contributors.length > 1 ? 'Group Bid' : map[b.contributors[0]] || b.contributors[0].slice(0,6) + '...' + b.contributors[0].slice(-4)
+                    }));
+                }
+
+                this.bids = processedBids;
             } catch (error) {
-                console.warn('Chain failed — using current auction #286 top bids');
+                console.warn('Chain failed — current top bids');
                 this.bids = [
-                    { url: 'https://farcaster.xyz/wydeorg/0xf6f7a837', amount: 325000000, name: '@wydeorg', fact: null },
-                    { url: 'https://contentmarketcap.com/coins/0x3ec2156D4c0A9CBdAB4a016633b7BcF6a8d68Ea2', amount: 316000000, name: 'contentmarketcap', fact: null },
-                    { url: 'https://farcaster.xyz/miniapps/KdCXV0aKWcm6/framedl', amount: 251000000, name: 'Framedl', fact: null },
-                    { url: 'https://farcaster.xyz/miniapps/uaKwcOvUry8F/neynartodes', amount: 150000000, name: 'NEYNARtodes', fact: null },
-                    { url: 'https://lazertechnologies.com', amount: 101000000, name: '@cb91waverider', fact: null },
-                    { url: 'https://farcaster.xyz/starl3xx.eth/0xd0c7a045', amount: 50000000, name: '@starl3xx.eth', fact: null },
-                    { url: 'https://eggs.fun', amount: 41290000, name: '$EGGS', fact: null },
-                    { url: 'https://farcaster.xyz/miniapps/GqooGbQfcN2L/12-days-of-frensmas', amount: 25000000, name: '@lazyfrank', fact: null },
-                    { url: 'https://zora.co/@superfreshtt', amount: 18000000, name: 'superfreshtt', fact: null },
-                    { url: 'https://growcorp.org/?ref=unc', amount: 12000000, name: '@LF_DAO_UNC', fact: null }
+                    { url: 'https://hunt.town', amount: 400000000, projectName: 'hunt town', name: '@if', fact: null }, // Top if current
+                    { url: 'https://farcaster.xyz/wydeorg/0xf6f7a837', amount: 325000000, projectName: 'WYDEORG', name: '@wydeorg', fact: null },
+                    { url: 'https://contentmarketcap.com/coins/0x3ec2156D4c0A9CBdAB4a016633b7BcF6a8d68Ea2', amount: 316000000, projectName: 'Content Market Cap', name: 'contentmarketcap', fact: null },
+                    { url: 'https://farcaster.xyz/miniapps/KdCXV0aKWcm6/framedl', amount: 251000000, projectName: 'Framedl', name: '@lazyfrank', fact: null },
+                    { url: 'https://farcaster.xyz/miniapps/uaKwcOvUry8F/neynartodes', amount: 150000000, projectName: 'NEYNARtodes', name: '@cb91waverider', fact: null }
                 ];
             }
 
@@ -115,8 +158,18 @@ document.addEventListener('alpine:init', () => {
             }
         },
 
+        extractProjectName(url) {
+            try {
+                const pathname = new URL(url).pathname;
+                const lastPart = pathname.split('/').filter(p => p).pop() || new URL(url).hostname;
+                return lastPart.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+            } catch (e) {
+                return 'Unknown Project';
+            }
+        },
+
         isMyBid(bid) {
-            return this.user.loggedIn && bid.contributors && bid.contributors.includes(this.user.wallet);
+            return this.user.loggedIn && bid.contributors.includes(this.user.wallet);
         },
 
         openModal(bid) {
@@ -140,6 +193,6 @@ document.addEventListener('alpine:init', () => {
             }
         },
 
-        // claim logic same
+        // claim logic
     }));
 });

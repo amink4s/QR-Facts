@@ -20,20 +20,21 @@
     </style>
 </head>
 <body class="min-h-screen p-4" x-data="app" x-init="init()">
-    <!-- Header (unchanged) -->
+    <!-- Header -->
     <div class="text-center mb-8">
         <h1 class="text-3xl font-bold neon mb-2">QR Facts</h1>
-        <template x-if="!user.username">
-            <p class="text-gray-400">Login to view & claim</p>
-            <button @click="login()" class="bg-neon text-black px-6 py-3 rounded-full font-bold">Login with Farcaster</button>
+        <p class="text-gray-400 mb-4">Daily Bidder Deep Dives • Powered by $FACTS</p>
+
+        <template x-if="!user.loggedIn">
+            <button @click="login()" class="bg-neon text-black px-6 py-3 rounded-full font-bold">Login with Farcaster (for adding facts & claims)</button>
         </template>
 
-        <template x-if="user.username">
+        <template x-if="user.loggedIn">
             <div class="flex items-center justify-center gap-4 mb-4">
-                <img :src="user.pfp" alt="PFP" class="w-12 h-12 rounded-full border-2 border-neon">
+                <img :src="user.pfp || 'https://via.placeholder.com/48'" alt="PFP" class="w-12 h-12 rounded-full border-2 border-neon">
                 <div class="text-left">
                     <p class="font-bold">@<span x-text="user.username"></span></p>
-                    <p class="text-sm text-gray-400">Neynar Score: <span x-text="user.score?.toFixed(2) || 'N/A'"></span></p>
+                    <p class="text-sm text-gray-400">Neynar Score: <span x-text="user.score.toFixed(2)"></span></p>
                 </div>
             </div>
         </template>
@@ -49,56 +50,68 @@
         </div>
     </div>
 
-    <!-- Bids List (visible always for testing) -->
+    <!-- Bids List (always visible) -->
     <div class="max-w-md mx-auto space-y-4">
-        <p x-show="loading" class="text-center text-gray-400">Loading today's bidders from chain...</p>
+        <p x-show="loading" class="text-center text-gray-400">Loading today's bidders...</p>
 
         <template x-for="bid in bids" :key="bid.url">
             <div class="bg-gray-900 p-5 rounded-lg border border-gray-700">
-                <h3 class="font-bold neon text-lg">
-                    <span x-text="bid.contributors.length > 1 ? 'Group Bid (' + bid.contributors.length + ')' : bid.contributors[0]?.slice(0,6) + '...' + bid.contributors[0]?.slice(-4)"></span>
-                </h3>
-                <p class="text-sm text-gray-400 mt-1">
+                <!-- Project Name - Prominent -->
+                <h3 class="font-bold neon text-2xl mb-1" x-text="bid.projectName"></h3>
+                
+                <!-- Bidder Username - Smaller -->
+                <p class="text-lg text-gray-300 mb-2" x-text="bid.name"></p>
+                
+                <p class="text-sm text-gray-400">
                     Total Bid: $<span x-text="(bid.amount / 1000000).toFixed(2)"></span> USDC
                 </p>
-                <p class="text-sm text-gray-400 break-all">
-                    Redirect URL: <a :href="bid.url" target="_blank" class="neon underline" x-text="bid.url"></a>
+                
+                <p class="text-sm text-gray-400 break-all mt-2">
+                    Link: <a :href="bid.url" target="_blank" class="neon underline" x-text="bid.url"></a>
                 </p>
 
+                <!-- Existing Fact Sheet -->
                 <template x-if="bid.fact">
-                    <div class="mt-4 p-3 bg-gray-800 rounded">
-                        <h4 class="font-semibold mb-2" x-text="bid.fact.title || 'Fact Sheet'"></h4>
-                        <p class="text-sm" x-text="bid.fact.article"></p>
-                        <p class="text-xs text-gray-500 mt-2" x-if="bid.fact.ca_or_link">CA/Link: <span x-text="bid.fact.ca_or_link"></span></p>
+                    <div class="mt-4 p-4 bg-gray-800 rounded-lg">
+                        <h4 class="font-semibold text-xl mb-2 neon" x-text="bid.fact.title || 'Project Facts'"></h4>
+                        <p class="text-sm leading-relaxed" x-text="bid.fact.article"></p>
+                        <p class="text-xs text-gray-500 mt-3" x-if="bid.fact.ca_or_link">
+                            Token CA / Link: <span class="text-neon" x-text="bid.fact.ca_or_link"></span>
+                        </p>
                     </div>
                 </template>
 
+                <!-- Add Facts Button - Only for logged-in bidder -->
                 <template x-if="!bid.fact && isMyBid(bid)">
-                    <button @click="openModal(bid)" class="mt-4 bg-neon text-black px-5 py-2 rounded font-bold">
-                        Add My Facts (+200 $FACTS)
+                    <button @click="openModal(bid)" class="mt-4 w-full bg-neon text-black py-3 rounded-lg font-bold text-lg">
+                        Add Facts About My Project (+200 $FACTS bonus)
                     </button>
                 </template>
 
-                <button @click="claimFacts()" class="mt-4 w-full py-2 rounded font-bold"
-                        :class="claimClass" :disabled="claimDisabled">
-                    <span x-text="claimText"></span>
-                </button>
+                <!-- $FACTS Claim Button - Only if logged in -->
+                <template x-if="user.loggedIn">
+                    <button @click="claimFacts()" class="mt-4 w-full py-3 rounded-lg font-bold text-lg"
+                            :class="claimClass" :disabled="claimDisabled">
+                        <span x-text="claimText"></span>
+                    </button>
+                </template>
             </div>
         </template>
 
         <p x-show="!loading && bids.length === 0" class="text-center text-gray-400">No active bids today</p>
     </div>
 
-    <!-- Submission Modal (unchanged) -->
+    <!-- Submission Modal -->
     <div class="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50" x-show="modalOpen" @click="modalOpen = false">
         <div class="bg-gray-900 p-6 rounded-lg max-w-lg w-full mx-4" @click.stop>
-            <h2 class="text-2xl font-bold neon mb-4">Add Your Facts</h2>
-            <input x-model="form.title" placeholder="Title (e.g. Why my token rocks)" class="w-full p-3 bg-gray-800 rounded mb-4 text-white">
-            <textarea x-model="form.article" placeholder="Write your project/token description..." rows="8" class="w-full p-3 bg-gray-800 rounded mb-4 text-white"></textarea>
-            <input x-model="form.ca" placeholder="Token CA or extra link (optional)" class="w-full p-3 bg-gray-800 rounded mb-4 text-white">
+            <h2 class="text-2xl font-bold neon mb-6">Add Facts About Your Project</h2>
+            <input x-model="form.title" placeholder="Title (e.g. What is hunt town?)" class="w-full p-3 bg-gray-800 rounded mb-4 text-white text-lg">
+            <textarea x-model="form.article" placeholder="Write a clear explanation of your project, token, or link..." rows="10" class="w-full p-3 bg-gray-800 rounded mb-4 text-white text-base"></textarea>
+            <input x-model="form.ca" placeholder="Token Contract Address or extra link (optional)" class="w-full p-3 bg-gray-800 rounded mb-6 text-white">
+            <p class="text-green-400 mb-4 text-center">Submit to earn 200 $FACTS bonus!</p>
             <div class="flex justify-end gap-3">
-                <button @click="modalOpen = false" class="px-5 py-2 text-gray-400">Cancel</button>
-                <button @click="submitFact()" class="bg-neon text-black px-6 py-2 rounded font-bold">Submit Facts</button>
+                <button @click="modalOpen = false" class="px-6 py-3 text-gray-400 font-bold">Cancel</button>
+                <button @click="submitFact()" class="bg-neon text-black px-8 py-3 rounded-lg font-bold">Submit Facts</button>
             </div>
         </div>
     </div>
