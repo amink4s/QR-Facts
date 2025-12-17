@@ -3,115 +3,101 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>QR Facts</title>
-    <meta name="fc:miniapp" content='{"version":"1","imageUrl":"https://qr-facts.vercel.app/image.png","button":{"title":"qr facts","action":{"type":"launch_miniapp","name":"qr facts","splashImageUrl":"https://qr-facts.vercel.app/splash.png","splashBackgroundColor":"#FFFFFF"}}}' />
-    <meta name="fc:frame" content='{"version":"1","imageUrl":"https://qr-facts.vercel.app/image.png","button":{"title":"qr facts","action":{"type":"launch_frame","name":"qr facts","splashImageUrl":"https://qr-facts.vercel.app/splash.png","splashBackgroundColor":"#FFFFFF"}}}' />
-    <script src="https://cdn.jsdelivr.net/npm/@farcaster/miniapp-sdk/dist/index.min.js"></script>
+    <title>QR Facts - Bidder Deep Dives</title>
+    <meta name="fc:miniapp" content='{"version":"1","imageUrl":"https://qr-facts.vercel.app/image.png","button":{"title":"qr facts","action":{"type":"launch_miniapp","name":"qr facts"}}}' />
+    
     <script src="https://cdn.tailwindcss.com"></script>
     <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/viem@2.x/dist/viem.min.js"></script>
     <script src="https://auth.farcaster.xyz/bundle/auth-kit.js"></script>
+
     <style>
-        body { background: #0f0f0f; color: white; font-family: 'Inter', sans-serif; }
-        .neon { color: #a855f7; }
-        .qr-border { border: 2px solid #a855f7; }
-        .pulse { animation: pulse 2s infinite; }
-        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+        body { background: #0b0b0b; color: #f0f0f0; font-family: 'Inter', sans-serif; }
+        .neon { color: #a855f7; text-shadow: 0 0 10px rgba(168, 85, 247, 0.4); }
+        .bg-neon { background-color: #a855f7; }
+        .border-neon { border-color: #a855f7; }
     </style>
 </head>
-<body class="min-h-screen p-4" x-data="app" x-init="init()">
-    <!-- Header -->
-    <div class="text-center mb-8">
-        <h1 class="text-3xl font-bold neon mb-2">QR Facts</h1>
-        <p class="text-gray-400 mb-4">Daily Bidder Deep Dives • Powered by $FACTS</p>
+<body x-data="app" class="min-h-screen p-4 md:p-8">
+    
+    <header class="text-center max-w-2xl mx-auto mb-10">
+        <h1 class="text-4xl font-black neon mb-2">QR FACTS</h1>
+        <p class="text-gray-400">Daily Deep Dives into Top Bidders</p>
 
-        <template x-if="!user.loggedIn">
-            <button @click="login()" class="bg-neon text-black px-6 py-3 rounded-full font-bold">Login with Farcaster (for adding facts & claims)</button>
-        </template>
-
-        <template x-if="user.loggedIn">
-            <div class="flex items-center justify-center gap-4 mb-4">
-                <img :src="user.pfp || 'https://via.placeholder.com/48'" alt="PFP" class="w-12 h-12 rounded-full border-2 border-neon">
-                <div class="text-left">
-                    <p class="font-bold">@<span x-text="user.username"></span></p>
-                    <p class="text-sm text-gray-400">Neynar Score: <span x-text="user.score.toFixed(2)"></span></p>
-                </div>
-            </div>
-        </template>
-
-        <div class="qr-border inline-block p-4 rounded-lg bg-black pulse mb-4">
-            <svg width="120" height="120" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
-                <rect width="100" height="100" fill="#a855f7" opacity="0.1"/>
-                <rect x="10" y="10" width="20" height="20" fill="#a855f7"/>
-                <rect x="70" y="10" width="20" height="20" fill="#a855f7"/>
-                <rect x="10" y="70" width="20" height="20" fill="#a855f7"/>
-                <rect x="70" y="70" width="20" height="20" fill="#a855f7"/>
-            </svg>
-        </div>
-    </div>
-
-    <!-- Bids List (always visible) -->
-    <div class="max-w-md mx-auto space-y-4">
-        <p x-show="loading" class="text-center text-gray-400">Loading today's bidders...</p>
-
-        <template x-for="bid in bids" :key="bid.url">
-            <div class="bg-gray-900 p-5 rounded-lg border border-gray-700">
-                <!-- Project Name - Prominent -->
-                <h3 class="font-bold neon text-2xl mb-1" x-text="bid.projectName"></h3>
-                
-                <!-- Bidder Username - Smaller -->
-                <p class="text-lg text-gray-300 mb-2" x-text="bid.name"></p>
-                
-                <p class="text-sm text-gray-400">
-                    Total Bid: $<span x-text="(bid.amount / 1000000).toFixed(2)"></span> USDC
-                </p>
-                
-                <p class="text-sm text-gray-400 break-all mt-2">
-                    Link: <a :href="bid.url" target="_blank" class="neon underline" x-text="bid.url"></a>
-                </p>
-
-                <!-- Existing Fact Sheet -->
-                <template x-if="bid.fact">
-                    <div class="mt-4 p-4 bg-gray-800 rounded-lg">
-                        <h4 class="font-semibold text-xl mb-2 neon" x-text="bid.fact.title || 'Project Facts'"></h4>
-                        <p class="text-sm leading-relaxed" x-text="bid.fact.article"></p>
-                        <p class="text-xs text-gray-500 mt-3" x-if="bid.fact.ca_or_link">
-                            Token CA / Link: <span class="text-neon" x-text="bid.fact.ca_or_link"></span>
-                        </p>
+        <div class="mt-6">
+            <template x-if="!user.loggedIn">
+                <button @click="login()" class="bg-neon text-black px-8 py-3 rounded-full font-bold hover:scale-105 transition">
+                    Login with Farcaster
+                </button>
+            </template>
+            <template x-if="user.loggedIn">
+                <div class="flex items-center justify-center gap-3 bg-gray-900 p-3 rounded-2xl border border-gray-800 inline-flex">
+                    <img :src="user.pfp" class="w-10 h-10 rounded-full border border-neon">
+                    <div class="text-left">
+                        <p class="font-bold text-sm" x-text="'@' + user.username"></p>
+                        <p class="text-xs text-gray-500" x-text="'Wallet: ' + user.wallet.slice(0,6) + '...'"></p>
                     </div>
-                </template>
+                </div>
+            </template>
+        </div>
+    </header>
 
-                <!-- Add Facts Button - Only for logged-in bidder -->
-                <template x-if="!bid.fact && isMyBid(bid)">
-                    <button @click="openModal(bid)" class="mt-4 w-full bg-neon text-black py-3 rounded-lg font-bold text-lg">
-                        Add Facts About My Project (+200 $FACTS bonus)
-                    </button>
-                </template>
+    <main class="max-w-xl mx-auto">
+        <div x-show="loading" class="text-center py-10">
+            <div class="animate-spin inline-block w-8 h-8 border-4 border-neon border-t-transparent rounded-full mb-4"></div>
+            <p class="text-gray-500">Syncing with Base mainnet...</p>
+        </div>
 
-                <!-- $FACTS Claim Button - Only if logged in -->
-                <template x-if="user.loggedIn">
-                    <button @click="claimFacts()" class="mt-4 w-full py-3 rounded-lg font-bold text-lg"
-                            :class="claimClass" :disabled="claimDisabled">
-                        <span x-text="claimText"></span>
-                    </button>
-                </template>
+        <div class="space-y-6" x-show="!loading">
+            <template x-for="bid in bids" :key="bid.url">
+                <div class="bg-gray-900 border border-gray-800 rounded-3xl p-6 hover:border-neon/50 transition">
+                    <div class="flex justify-between items-start mb-4">
+                        <div>
+                            <h2 class="text-2xl font-bold neon leading-tight" x-text="bid.projectName"></h2>
+                            <p class="text-gray-400 font-medium" x-text="bid.name"></p>
+                        </div>
+                        <div class="bg-neon/10 text-neon px-3 py-1 rounded-full text-sm font-bold border border-neon/20">
+                            $<span x-text="(bid.amount / 1000000).toFixed(0)"></span> USDC
+                        </div>
+                    </div>
+
+                    <a :href="bid.url" target="_blank" class="block text-sm text-gray-500 truncate mb-4 underline decoration-neon/30" x-text="bid.url"></a>
+
+                    <template x-if="bid.fact">
+                        <div class="bg-black/40 p-4 rounded-xl border border-gray-800">
+                            <h3 class="font-bold mb-1 text-white" x-text="bid.fact.title"></h3>
+                            <p class="text-sm text-gray-300 line-clamp-3" x-text="bid.fact.article"></p>
+                        </div>
+                    </template>
+
+                    <div class="mt-4 flex gap-2">
+                        <template x-if="isMyBid(bid) && !bid.fact">
+                            <button @click="openModal(bid)" class="flex-1 bg-neon text-black py-3 rounded-xl font-bold text-sm">
+                                Add Facts (+200 $FACTS)
+                            </button>
+                        </template>
+                        <template x-if="user.loggedIn">
+                            <button @click="claimFacts()" class="flex-1 bg-gray-800 text-gray-400 py-3 rounded-xl font-bold text-sm cursor-not-allowed">
+                                Claim $FACTS
+                            </button>
+                        </template>
+                    </div>
+                </div>
+            </template>
+        </div>
+    </main>
+
+    <div x-show="modalOpen" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm" x-cloak>
+        <div class="bg-gray-900 w-full max-w-lg rounded-3xl p-8 border border-gray-800" @click.stop>
+            <h2 class="text-2xl font-bold mb-6">Explain your project</h2>
+            <div class="space-y-4">
+                <input x-model="form.title" placeholder="Project Title" class="w-full bg-black border border-gray-800 rounded-xl p-4 focus:border-neon outline-none">
+                <textarea x-model="form.article" rows="6" placeholder="What should people know about this link?" class="w-full bg-black border border-gray-800 rounded-xl p-4 focus:border-neon outline-none"></textarea>
+                <input x-model="form.ca" placeholder="Token Contract (Optional)" class="w-full bg-black border border-gray-800 rounded-xl p-4 focus:border-neon outline-none">
             </div>
-        </template>
-
-        <p x-show="!loading && bids.length === 0" class="text-center text-gray-400">No active bids today</p>
-    </div>
-
-    <!-- Submission Modal -->
-    <div class="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50" x-show="modalOpen" @click="modalOpen = false">
-        <div class="bg-gray-900 p-6 rounded-lg max-w-lg w-full mx-4" @click.stop>
-            <h2 class="text-2xl font-bold neon mb-6">Add Facts About Your Project</h2>
-            <input x-model="form.title" placeholder="Title (e.g. What is hunt town?)" class="w-full p-3 bg-gray-800 rounded mb-4 text-white text-lg">
-            <textarea x-model="form.article" placeholder="Write a clear explanation of your project, token, or link..." rows="10" class="w-full p-3 bg-gray-800 rounded mb-4 text-white text-base"></textarea>
-            <input x-model="form.ca" placeholder="Token Contract Address or extra link (optional)" class="w-full p-3 bg-gray-800 rounded mb-6 text-white">
-            <p class="text-green-400 mb-4 text-center">Submit to earn 200 $FACTS bonus!</p>
-            <div class="flex justify-end gap-3">
-                <button @click="modalOpen = false" class="px-6 py-3 text-gray-400 font-bold">Cancel</button>
-                <button @click="submitFact()" class="bg-neon text-black px-8 py-3 rounded-lg font-bold">Submit Facts</button>
+            <div class="flex gap-4 mt-8">
+                <button @click="modalOpen = false" class="flex-1 text-gray-500 font-bold">Cancel</button>
+                <button @click="submitFact()" class="flex-1 bg-neon text-black py-4 rounded-xl font-bold">Submit Facts</button>
             </div>
         </div>
     </div>
