@@ -10,27 +10,23 @@ document.addEventListener('alpine:init', () => {
         countdown: 7,
         editModalOpen: false,
         form: { title: '', article: '', ca: '', url: '' },
-        retries: 0, // Added to prevent infinite loop
+        retries: 0,
 
         async init() {
-            console.log("Checking for Viem...");
+            console.log("Checking for Ethers...");
             
-            // Check for window.viem (lowercase) or window.Viem (uppercase)
-            const viemLib = window.viem || window.Viem;
-
-            if (!viemLib) {
+            if (!window.ethers) {
                 if (this.retries < 5) {
                     this.retries++;
-                    console.warn(`Viem not found. Retry ${this.retries}/5...`);
                     setTimeout(() => this.init(), 1000);
                 } else {
-                    console.error("Viem failed to load after 5 retries. Check internet or CDN link.");
-                    this.loading = false; // Stop spinner so user sees error
+                    console.error("Ethers failed to load.");
+                    this.loading = false;
                 }
                 return;
             }
 
-            console.log("Viem located! Initializing SDK...");
+            console.log("Ethers found! Initializing SDK...");
 
             if (window.farcaster?.sdk) {
                 try {
@@ -45,32 +41,34 @@ document.addEventListener('alpine:init', () => {
         async loadBids() {
             this.loading = true;
             try {
-                // Use whichever variable was found
-                const v = window.viem || window.Viem;
-                const { createPublicClient, http } = v;
-                
-                const client = createPublicClient({ 
-                    chain: { id: 8453, name: 'Base' }, 
-                    transport: http('https://mainnet.base.org') 
-                });
+                // Ethers Setup
+                const provider = new ethers.JsonRpcProvider('https://mainnet.base.org');
+                const contractAddress = '0x6A0FB6dfDA897dAe3c69D06d5D6B5d6b251281da';
+                const abi = [
+                    "function getAllBids() view returns (tuple(uint256 totalAmount, string urlString, tuple(address contributor, uint256 amount, uint256 timestamp)[] contributions)[])"
+                ];
 
-                const rawBids = await client.readContract({
-                    address: '0x6A0FB6dfDA897dAe3c69D06d5D6B5d6b251281da',
-                    abi: [{ "inputs": [], "name": "getAllBids", "outputs": [{ "components": [{ "name": "totalAmount", "type": "uint256" }, { "name": "urlString", "type": "string" }, { "name": "contributions", "type": "tuple[]", "components": [{ "name": "contributor", "type": "address" }] }], "type": "tuple[]" }], "stateMutability": "view", "type": "function" }],
-                    functionName: 'getAllBids'
-                });
+                const contract = new ethers.Contract(contractAddress, abi, provider);
+                const rawBids = await contract.getAllBids();
+                
+                console.log("Bids fetched:", rawBids.length);
 
                 const factsRes = await fetch('/api/facts');
                 const savedFacts = await factsRes.json();
 
                 this.bids = rawBids.map(bid => {
-                    const fact = savedFacts.find(f => f.url_string === bid.urlString);
+                    const urlStr = bid.urlString;
+                    const fact = savedFacts.find(f => f.url_string === urlStr);
+                    
+                    // Format contributions for the "isMyBid" check
+                    const contributors = bid.contributions.map(c => c.contributor.toLowerCase());
+
                     return {
-                        url: bid.urlString,
+                        url: urlStr,
                         amount: Number(bid.totalAmount),
-                        contributors: bid.contributions.map(c => c.contributor.toLowerCase()),
-                        projectName: this.extractProjectName(bid.urlString),
-                        name: bid.contributions[0]?.contributor.slice(0,6) || 'Anon',
+                        contributors: contributors,
+                        projectName: this.extractProjectName(urlStr),
+                        name: contributors[0] ? (contributors[0].slice(0,6) + '...') : 'Anon',
                         fact: fact || null,
                         hasRead: false,
                         claiming: false,
@@ -85,7 +83,6 @@ document.addEventListener('alpine:init', () => {
             }
         },
 
-        // Rest of the functions (autoLogin, openReader, etc.) stay the same as before...
         async autoLogin() {
             if (!window.farcaster?.sdk?.context) return;
             const context = window.farcaster.sdk.context;
@@ -111,7 +108,7 @@ document.addEventListener('alpine:init', () => {
                         loggedIn: true
                     };
 
-                    fetch('/api/user', {
+                    await fetch('/api/user', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(this.user)
