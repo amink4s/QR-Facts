@@ -3,81 +3,69 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>QR Facts - Bidder Deep Dives</title>
+    <title>QR Facts</title>
     <meta name="fc:miniapp" content='{"version":"1","imageUrl":"https://qr-facts.vercel.app/image.png","button":{"title":"qr facts","action":{"type":"launch_miniapp","name":"qr facts"}}}' />
     
     <script src="https://cdn.tailwindcss.com"></script>
     <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/viem@2.x/dist/viem.min.js"></script>
-    <script src="https://auth.farcaster.xyz/bundle/auth-kit.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@farcaster/miniapp-sdk@latest/dist/index.min.js"></script>
 
     <style>
+        [x-cloak] { display: none !important; }
         body { background: #0b0b0b; color: #f0f0f0; font-family: 'Inter', sans-serif; }
         .neon { color: #a855f7; text-shadow: 0 0 10px rgba(168, 85, 247, 0.4); }
         .bg-neon { background-color: #a855f7; }
-        .border-neon { border-color: #a855f7; }
     </style>
 </head>
 <body x-data="app" class="min-h-screen p-4 md:p-8">
     
-    <header class="text-center max-w-2xl mx-auto mb-10">
-        <h1 class="text-4xl font-black neon mb-2">QR FACTS</h1>
-        <p class="text-gray-400">Daily Deep Dives into Top Bidders</p>
-
-        <div class="mt-6">
-            <template x-if="!user.loggedIn">
-                <button @click="login()" class="bg-neon text-black px-8 py-3 rounded-full font-bold hover:scale-105 transition">
-                    Login with Farcaster
-                </button>
-            </template>
-            <template x-if="user.loggedIn">
-                <div class="flex items-center justify-center gap-3 bg-gray-900 p-3 rounded-2xl border border-gray-800 inline-flex">
-                    <img :src="user.pfp" class="w-10 h-10 rounded-full border border-neon">
-                    <div class="text-left">
-                        <p class="font-bold text-sm" x-text="'@' + user.username"></p>
-                        <p class="text-xs text-gray-500" x-text="'Wallet: ' + user.wallet.slice(0,6) + '...'"></p>
-                    </div>
-                </div>
-            </template>
+    <header class="flex justify-between items-center max-w-xl mx-auto mb-10">
+        <div class="text-left">
+            <h1 class="text-2xl font-black neon leading-none">QR FACTS</h1>
+            <p class="text-xs text-gray-500 uppercase tracking-widest mt-1">Bidder Deep Dives</p>
         </div>
+
+        <template x-if="user.loggedIn">
+            <div class="flex items-center gap-3 bg-gray-900/50 p-2 pr-4 rounded-full border border-gray-800">
+                <img :src="user.pfp" class="w-8 h-8 rounded-full border border-neon">
+                <div class="text-left">
+                    <p class="font-bold text-xs" x-text="'@' + user.username"></p>
+                    <p class="text-[10px] text-neon" x-text="'Score: ' + user.score.toFixed(2)"></p>
+                </div>
+            </div>
+        </template>
     </header>
 
     <main class="max-w-xl mx-auto">
-        <div x-show="loading" class="text-center py-10">
+        <div x-show="loading" class="text-center py-20">
             <div class="animate-spin inline-block w-8 h-8 border-4 border-neon border-t-transparent rounded-full mb-4"></div>
-            <p class="text-gray-500">Syncing with Base mainnet...</p>
+            <p class="text-gray-500 text-sm">Syncing auctions...</p>
         </div>
 
-        <div class="space-y-6" x-show="!loading">
+        <div class="space-y-6" x-show="!loading" x-cloak>
             <template x-for="bid in bids" :key="bid.url">
-                <div class="bg-gray-900 border border-gray-800 rounded-3xl p-6 hover:border-neon/50 transition">
+                <div class="bg-gray-900 border border-gray-800 rounded-3xl p-6">
                     <div class="flex justify-between items-start mb-4">
                         <div>
-                            <h2 class="text-2xl font-bold neon leading-tight" x-text="bid.projectName"></h2>
-                            <p class="text-gray-400 font-medium" x-text="bid.name"></p>
+                            <h2 class="text-xl font-bold text-white mb-1" x-text="bid.projectName"></h2>
+                            <p class="text-gray-500 text-sm" x-text="'By ' + bid.name"></p>
                         </div>
-                        <div class="bg-neon/10 text-neon px-3 py-1 rounded-full text-sm font-bold border border-neon/20">
-                            $<span x-text="(bid.amount / 1000000).toFixed(0)"></span> USDC
+                        <div class="bg-neon/10 text-neon px-3 py-1 rounded-lg text-xs font-bold border border-neon/20">
+                            $<span x-text="(bid.amount / 1000000).toFixed(0)"></span>
                         </div>
                     </div>
 
-                    <a :href="bid.url" target="_blank" class="block text-sm text-gray-500 truncate mb-4 underline decoration-neon/30" x-text="bid.url"></a>
-
-                    <template x-if="bid.fact">
-                        <div class="bg-black/40 p-4 rounded-xl border border-gray-800">
-                            <h3 class="font-bold mb-1 text-white" x-text="bid.fact.title"></h3>
-                            <p class="text-sm text-gray-300 line-clamp-3" x-text="bid.fact.article"></p>
-                        </div>
-                    </template>
+                    <a :href="bid.url" target="_blank" class="block text-xs text-gray-600 truncate mb-4 italic" x-text="bid.url"></a>
 
                     <div class="mt-4 flex gap-2">
-                        <template x-if="isMyBid(bid) && !bid.fact">
+                        <template x-if="isMyBid(bid)">
                             <button @click="openModal(bid)" class="flex-1 bg-neon text-black py-3 rounded-xl font-bold text-sm">
-                                Add Facts (+200 $FACTS)
+                                Edit Project Fact
                             </button>
                         </template>
                         <template x-if="user.loggedIn">
-                            <button @click="claimFacts()" class="flex-1 bg-gray-800 text-gray-400 py-3 rounded-xl font-bold text-sm cursor-not-allowed">
+                            <button @click="claimFacts()" class="flex-1 bg-gray-800 text-gray-300 py-3 rounded-xl font-bold text-sm">
                                 Claim $FACTS
                             </button>
                         </template>
@@ -87,17 +75,16 @@
         </div>
     </main>
 
-    <div x-show="modalOpen" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm" x-cloak>
-        <div class="bg-gray-900 w-full max-w-lg rounded-3xl p-8 border border-gray-800" @click.stop>
-            <h2 class="text-2xl font-bold mb-6">Explain your project</h2>
+    <div x-show="modalOpen" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/90 backdrop-blur-sm" x-cloak>
+        <div class="bg-gray-900 w-full max-w-md rounded-3xl p-8 border border-gray-800">
+            <h2 class="text-xl font-bold mb-6">Add Project Facts</h2>
             <div class="space-y-4">
-                <input x-model="form.title" placeholder="Project Title" class="w-full bg-black border border-gray-800 rounded-xl p-4 focus:border-neon outline-none">
-                <textarea x-model="form.article" rows="6" placeholder="What should people know about this link?" class="w-full bg-black border border-gray-800 rounded-xl p-4 focus:border-neon outline-none"></textarea>
-                <input x-model="form.ca" placeholder="Token Contract (Optional)" class="w-full bg-black border border-gray-800 rounded-xl p-4 focus:border-neon outline-none">
+                <input x-model="form.title" placeholder="Title" class="w-full bg-black border border-gray-800 rounded-xl p-4 outline-none focus:border-neon">
+                <textarea x-model="form.article" rows="4" placeholder="Description" class="w-full bg-black border border-gray-800 rounded-xl p-4 outline-none focus:border-neon"></textarea>
             </div>
             <div class="flex gap-4 mt-8">
-                <button @click="modalOpen = false" class="flex-1 text-gray-500 font-bold">Cancel</button>
-                <button @click="submitFact()" class="flex-1 bg-neon text-black py-4 rounded-xl font-bold">Submit Facts</button>
+                <button @click="modalOpen = false" class="flex-1 text-gray-500 text-sm font-bold">Cancel</button>
+                <button @click="submitFact()" class="flex-1 bg-neon text-black py-3 rounded-xl font-bold text-sm">Submit</button>
             </div>
         </div>
     </div>
