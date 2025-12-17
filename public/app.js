@@ -48,14 +48,33 @@ document.addEventListener('alpine:init', () => {
                         loggedIn: true
                     };
 
-                    // Sync user to our DB
+                    // 1. Sync user profile to DB
                     await fetch('/api/user', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(this.user)
                     });
+
+                    // 2. Check which bids they've already claimed
+                    await this.checkExistingClaims();
+
                 } catch (e) { console.error("Login sync failed", e); }
             }
+        },
+
+        async checkExistingClaims() {
+            if (!this.user.fid) return;
+            try {
+                const res = await fetch(`/api/check-claims?fid=${this.user.fid}`);
+                const { claimedUrls } = await res.json();
+                
+                // Update the state of each bid if the URL is in the claimed list
+                this.bids = this.bids.map(bid => ({
+                    ...bid,
+                    claimed: claimedUrls.includes(bid.url),
+                    hasRead: claimedUrls.includes(bid.url) // If claimed, they must have read it
+                }));
+            } catch (e) { console.error("Claim check failed", e); }
         },
 
         async loadBids() {
@@ -71,9 +90,8 @@ document.addEventListener('alpine:init', () => {
                     functionName: 'getAllBids'
                 });
 
-                // Fetch our DB-stored facts
                 const factsRes = await fetch('/api/facts');
-                const savedFacts = await factsRes.json(); // Array of spotlights from DB
+                const savedFacts = await factsRes.json();
 
                 this.bids = rawBids.map(bid => {
                     const fact = savedFacts.find(f => f.url_string === bid.urlString);
@@ -90,9 +108,8 @@ document.addEventListener('alpine:init', () => {
                     };
                 }).sort((a, b) => b.amount - a.amount);
 
-            } catch (error) {
-                console.error('Load error', error);
-            } finally { this.loading = false; }
+            } catch (error) { console.error('Load error', error); } 
+            finally { this.loading = false; }
         },
 
         openReader(bid) {
@@ -102,7 +119,6 @@ document.addEventListener('alpine:init', () => {
             this.canFinish = false;
             this.countdown = 7;
 
-            // Start 7-second countdown
             setTimeout(() => {
                 this.timerStarted = true;
                 const interval = setInterval(() => {
@@ -165,7 +181,7 @@ document.addEventListener('alpine:init', () => {
                     body: JSON.stringify(this.form)
                 });
                 this.editModalOpen = false;
-                await this.loadBids(); // Refresh UI
+                await this.loadBids(); 
             } catch (e) { alert("Save failed."); }
         },
 
