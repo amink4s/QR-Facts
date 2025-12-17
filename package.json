@@ -2,8 +2,11 @@
   "name": "qr-facts",
   "version": "1.0.0",
   "private": true,
-  "type": "commonjs",
+  "dependencies": {
+    "@neondatabase/serverless": "^0.9.4",
+    "viem": "^2.21.1"
+  },
   "scripts": {
-    "vercel-build": "echo 'Static build'"
+    "vercel-build": "echo 'Building...'"
   }
 }
