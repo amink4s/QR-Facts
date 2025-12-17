@@ -3,43 +3,97 @@ document.addEventListener('alpine:init', () => {
         user: { username: '', pfp: '', score: 0, wallet: '', fid: null, loggedIn: false },
         bids: [],
         loading: true,
+        
+        // Reader State
         readerOpen: false,
         activeBid: null,
         timerStarted: false,
         canFinish: false,
         countdown: 7,
+
+        // Edit State
         editModalOpen: false,
         form: { title: '', article: '', ca: '', url: '' },
 
         async init() {
-            // Wait for Viem to be available globally
-            const waitForViem = () => {
-                return new Promise((resolve) => {
-                    if (window.viem) return resolve();
-                    const interval = setInterval(() => {
-                        if (window.viem) {
-                            clearInterval(interval);
-                            resolve();
-                        }
-                    }, 50);
-                });
-            };
+            console.log("Initializing App...");
+            
+            // 1. Ensure Viem is loaded
+            if (!window.viem) {
+                console.error("Viem not found on window. Retrying in 1s...");
+                setTimeout(() => this.init(), 1000);
+                return;
+            }
 
-            await waitForViem();
-
-            // Notify Farcaster we are ready to hide splash screen
+            // 2. Clear Splash Screen immediately
             if (window.farcaster?.sdk) {
                 try {
                     await window.farcaster.sdk.actions.ready();
                     console.log("Farcaster SDK Ready");
-                } catch (e) {
-                    console.error("SDK Ready Error", e);
-                }
+                } catch (e) { console.warn("SDK Ready error:", e); }
             }
 
-            // Start loading data
+            // 3. Load Data
             await this.loadBids();
             await this.autoLogin();
+        },
+
+        async loadBids() {
+            this.loading = true;
+            console.log("Fetching Bids...");
+            
+            try {
+                const { createPublicClient, http } = window.viem;
+                
+                // Using a reliable public mirror for Base
+                const client = createPublicClient({ 
+                    chain: { id: 8453, name: 'Base' }, 
+                    transport: http('https://mainnet.base.org'),
+                    pollingInterval: 4_000 
+                });
+
+                // Set a timeout for the contract call
+                const contractPromise = client.readContract({
+                    address: '0x6A0FB6dfDA897dAe3c69D06d5D6B5d6b251281da',
+                    abi: [{ "inputs": [], "name": "getAllBids", "outputs": [{ "components": [{ "name": "totalAmount", "type": "uint256" }, { "name": "urlString", "type": "string" }, { "name": "contributions", "type": "tuple[]", "components": [{ "name": "contributor", "type": "address" }] }], "type": "tuple[]" }], "stateMutability": "view", "type": "function" }],
+                    functionName: 'getAllBids'
+                });
+
+                // Race the contract call against a 10-second timeout
+                const timeoutPromise = new Promise((_, reject) => 
+                    setTimeout(() => reject(new Error("RPC Timeout")), 10000)
+                );
+
+                const rawBids = await Promise.race([contractPromise, timeoutPromise]);
+                console.log("Raw Bids received:", rawBids.length);
+
+                const factsRes = await fetch('/api/facts');
+                const savedFacts = await factsRes.json();
+
+                this.bids = rawBids.map(bid => {
+                    const fact = savedFacts.find(f => f.url_string === bid.urlString);
+                    return {
+                        url: bid.urlString,
+                        amount: Number(bid.totalAmount),
+                        contributors: bid.contributions.map(c => c.contributor.toLowerCase()),
+                        projectName: this.extractProjectName(bid.urlString),
+                        name: bid.contributions[0]?.contributor.slice(0,6) || 'Unknown',
+                        fact: fact || null,
+                        hasRead: false,
+                        claiming: false,
+                        claimed: false
+                    };
+                }).sort((a, b) => b.amount - a.amount);
+
+            } catch (error) {
+                console.error('CRITICAL LOAD ERROR:', error);
+                // If it fails, we show at least one "Empty" state so the user isn't stuck on a spinner
+                if (this.bids.length === 0) {
+                    this.bids = []; 
+                }
+            } finally {
+                this.loading = false;
+            }
         },
 
         async autoLogin() {
@@ -67,7 +121,7 @@ document.addEventListener('alpine:init', () => {
                         loggedIn: true
                     };
 
-                    await fetch('/api/user', {
+                    fetch('/api/user', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(this.user)
@@ -82,7 +136,8 @@ document.addEventListener('alpine:init', () => {
             if (!this.user.fid) return;
             try {
                 const res = await fetch(`/api/check-claims?fid=${this.user.fid}`);
-                const { claimedUrls } = await res.json();
+                const data = await res.json();
+                const claimedUrls = data.claimedUrls || [];
                 
                 this.bids = this.bids.map(bid => ({
                     ...bid,
@@ -92,55 +147,12 @@ document.addEventListener('alpine:init', () => {
             } catch (e) { console.error("Claim check failed", e); }
         },
 
-        async loadBids() {
-            this.loading = true;
-            try {
-                // Now viem is guaranteed to be defined
-                const { createPublicClient, http } = window.viem;
-                const baseChain = { id: 8453, name: 'Base', network: 'base', nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 }, rpcUrls: { default: { http: ['https://mainnet.base.org'] } } };
-                const client = createPublicClient({ chain: baseChain, transport: http() });
-
-                const rawBids = await client.readContract({
-                    address: '0x6A0FB6dfDA897dAe3c69D06d5D6B5d6b251281da',
-                    abi: [{ "inputs": [], "name": "getAllBids", "outputs": [{ "components": [{ "name": "totalAmount", "type": "uint256" }, { "name": "urlString", "type": "string" }, { "name": "contributions", "type": "tuple[]", "components": [{ "name": "contributor", "type": "address" }] }], "type": "tuple[]" }], "stateMutability": "view", "type": "function" }],
-                    functionName: 'getAllBids'
-                });
-
-                const factsRes = await fetch('/api/facts');
-                const savedFacts = await factsRes.json();
-
-                this.bids = rawBids.map(bid => {
-                    const fact = savedFacts.find(f => f.url_string === bid.urlString);
-                    return {
-                        url: bid.urlString,
-                        amount: Number(bid.totalAmount),
-                        contributors: bid.contributions.map(c => c.contributor.toLowerCase()),
-                        projectName: this.extractProjectName(bid.urlString),
-                        name: bid.contributions[0]?.contributor.slice(0,6),
-                        fact: fact || null,
-                        hasRead: false,
-                        claiming: false,
-                        claimed: false
-                    };
-                }).sort((a, b) => b.amount - a.amount);
-
-            } catch (error) { 
-                console.error('Load error', error); 
-                // Fallback for visual testing
-                this.bids = [
-                    { url: 'https://test.com', amount: 1000000, contributors: [], projectName: 'Testing', name: 'dev', hasRead: false, claiming: false, claimed: false }
-                ];
-            } 
-            finally { this.loading = false; }
-        },
-
         openReader(bid) {
             this.activeBid = bid;
             this.readerOpen = true;
             this.timerStarted = false;
             this.canFinish = false;
             this.countdown = 7;
-
             setTimeout(() => {
                 this.timerStarted = true;
                 const interval = setInterval(() => {
