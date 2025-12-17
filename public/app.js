@@ -1,60 +1,97 @@
 document.addEventListener('alpine:init', () => {
     Alpine.data('app', () => ({
-        user: { username: '', pfp: '', wallet: '', loggedIn: false },
+        // User State
+        user: { 
+            username: 'anonymous', 
+            pfp: 'https://me-qr.com/static/img/default-pfp.png', 
+            wallet: '', 
+            score: 0, 
+            loggedIn: false 
+        },
+
+        // Auction State
         bids: [],
         loading: true,
         contractAddress: '0x6A0FB6dfDA897dAe3c69D06d5D6B5d6b251281da',
 
+        // Reader/Modal State
+        readerOpen: false,
+        activeBid: null,
+        canFinish: false,
+        countdown: 7,
+        timerStarted: false,
+        
+        // Edit Form State
+        editModalOpen: false,
+        form: { title: '', article: '', ca: '' },
+
         async init() {
-            // Give time for ethers to load if script is slow
-            if (!window.ethers) {
-                setTimeout(() => this.init(), 500);
-                return;
+            // 1. Initialize Farcaster SDK
+            try {
+                if (window.farcaster?.miniapp) {
+                    const context = await window.farcaster.miniapp.getContext();
+                    this.user.username = context.user.username;
+                    this.user.pfp = context.user.pfpUrl;
+                    this.user.wallet = context.user.custodyAddress;
+                    this.user.loggedIn = true;
+                }
+            } catch (e) {
+                console.warn("Farcaster context not found, running in browser mode.");
             }
+
+            // 2. Load Auction Data
             await this.loadBids();
-            this.checkLogin();
         },
 
         async loadBids() {
             this.loading = true;
             try {
+                // Using Base Mainnet
                 const provider = new ethers.JsonRpcProvider('https://mainnet.base.org');
                 
-                // We define the specific functions we need from your QRAuctionV4 contract
+                // ABI specifically handling your storage structure and name mapping
                 const abi = [
                     "function getAllBids() view returns (tuple(uint256 totalAmount, string urlString, tuple(address contributor, uint256 amount, uint256 timestamp)[] contributions)[])",
-                    "function getBidderName(address _bidder) view returns (string)"
+                    "function getBidderName(address _bidder) view returns (string)",
+                    "function auction() view returns (tuple(uint256 tokenId, uint256 startTime, uint256 endTime, bool settled, tuple(string urlString, uint256 validUntil) qrMetadata))"
                 ];
                 
                 const contract = new ethers.Contract(this.contractAddress, abi, provider);
+                
+                // Fetch bids from contract
                 const rawBids = await contract.getAllBids();
 
-                // 1. Map the bids and call getBidderName for each unique address
-                const processedBids = await Promise.all(rawBids.map(async (bid) => {
-                    // The first contributor is the one who named the bid
+                // Process each bid and resolve names
+                this.bids = await Promise.all(rawBids.map(async (bid) => {
                     const creatorAddr = bid.contributions[0].contributor;
                     
-                    // Fetch the name string the user entered on-chain
+                    // Fetch the string name from the contract's mapping
                     let onChainName = "Unnamed Project";
                     try {
                         onChainName = await contract.getBidderName(creatorAddr);
-                    } catch (e) { console.error("Name fetch error", e); }
+                    } catch (e) {}
 
                     return {
                         url: bid.urlString,
                         amount: Number(bid.totalAmount),
                         projectName: onChainName || "Unnamed Project",
                         creatorAddress: creatorAddr.toLowerCase(),
-                        creatorUsername: creatorAddr.slice(0, 6) + '...', // Temporary fallback
-                        contributions: bid.contributions
+                        creatorUsername: creatorAddr.slice(0, 6) + '...', // Initial fallback
+                        hasRead: false,
+                        claiming: false,
+                        claimed: false,
+                        // Placeholder for the "Facts" content (can be pulled from your DB)
+                        fact: { title: '', article: '' } 
                     };
                 }));
 
-                // Sort by highest amount first
-                this.bids = processedBids.sort((a, b) => b.amount - a.amount);
+                // Sort by total USDC amount
+                this.bids.sort((a, b) => b.amount - a.amount);
 
-                // 2. Fetch Farcaster handles for all creators via our API
+                // Now resolve Farcaster handles via your API
                 await this.resolveUsernames();
+                // Optionally: Load saved "Facts" for these URLs from your database
+                await this.loadProjectFacts();
 
             } catch (error) {
                 console.error('Failed to load bids:', error);
@@ -64,38 +101,81 @@ document.addEventListener('alpine:init', () => {
         },
 
         async resolveUsernames() {
-            // Get unique addresses from the creators
             const addresses = [...new Set(this.bids.map(b => b.creatorAddress))].join(',');
             if (!addresses) return;
 
             try {
-                // This calls your /api/lookup-names.js which uses Neynar
                 const res = await fetch(`/api/lookup-names?addresses=${addresses}`);
                 const nameMap = await res.json();
                 
-                this.bids = this.bids.map(bid => ({
-                    ...bid,
-                    creatorUsername: nameMap[bid.creatorAddress] || bid.creatorUsername
-                }));
+                this.bids.forEach(bid => {
+                    if (nameMap[bid.creatorAddress]) {
+                        bid.creatorUsername = nameMap[bid.creatorAddress];
+                    }
+                });
             } catch (e) {
-                console.warn("Neynar username resolution failed.");
+                console.warn("Username resolution unavailable.");
             }
         },
 
-        // --- FARCASTER LOGIN LOGIC ---
-        async login() {
-            // Trigger your Farcaster login flow here (SIWN / Neynar Auth)
-            // This is a placeholder for your existing login mechanism
-            console.log("Login triggered");
+        // --- Reader Logic ---
+        openReader(bid) {
+            this.activeBid = bid;
+            this.readerOpen = true;
+            this.canFinish = false;
+            this.countdown = 7;
+            this.timerStarted = true;
+
+            const timer = setInterval(() => {
+                this.countdown--;
+                if (this.countdown <= 0) {
+                    this.canFinish = true;
+                    clearInterval(timer);
+                }
+            }, 1000);
         },
 
-        checkLogin() {
-            // Logic to check if user is already logged in (LocalStorage/Cookie)
-            const saved = localStorage.getItem('fc_user');
-            if (saved) {
-                this.user = JSON.parse(saved);
-                this.user.loggedIn = true;
+        finishReading() {
+            if (this.canFinish) {
+                this.activeBid.hasRead = true;
+                this.readerOpen = false;
+                this.timerStarted = false;
             }
+        },
+
+        // --- Claim Logic ---
+        async claim(bid) {
+            bid.claiming = true;
+            // Simulated transaction/API call to your backend
+            setTimeout(() => {
+                bid.claiming = false;
+                bid.claimed = true;
+                this.user.score += 10;
+            }, 2000);
+        },
+
+        // --- Edit Logic ---
+        isMyBid(bid) {
+            if (!this.user.wallet) return false;
+            return bid.creatorAddress.toLowerCase() === this.user.wallet.toLowerCase();
+        },
+
+        openEditModal(bid) {
+            this.activeBid = bid;
+            this.form = { ...bid.fact };
+            this.editModalOpen = true;
+        },
+
+        async submitFact() {
+            // Save to your database via API
+            this.activeBid.fact = { ...this.form };
+            this.editModalOpen = false;
+            alert("Facts updated locally!");
+        },
+
+        async loadProjectFacts() {
+            // Placeholder: Fetch saved descriptions for each URL from your Vercel/Supabase DB
+            console.log("Loading facts from DB...");
         }
     }));
 });
