@@ -13,25 +13,16 @@ document.addEventListener('alpine:init', () => {
         retries: 0,
 
         async init() {
-            console.log("Checking for Ethers...");
-            
             if (!window.ethers) {
                 if (this.retries < 5) {
                     this.retries++;
                     setTimeout(() => this.init(), 1000);
-                } else {
-                    console.error("Ethers failed to load.");
-                    this.loading = false;
-                }
+                } else { this.loading = false; }
                 return;
             }
 
-            console.log("Ethers found! Initializing SDK...");
-
             if (window.farcaster?.sdk) {
-                try {
-                    await window.farcaster.sdk.actions.ready();
-                } catch (e) { console.warn("SDK ready error", e); }
+                try { await window.farcaster.sdk.actions.ready(); } catch (e) {}
             }
 
             await this.loadBids();
@@ -41,34 +32,29 @@ document.addEventListener('alpine:init', () => {
         async loadBids() {
             this.loading = true;
             try {
-                // Ethers Setup
                 const provider = new ethers.JsonRpcProvider('https://mainnet.base.org');
                 const contractAddress = '0x6A0FB6dfDA897dAe3c69D06d5D6B5d6b251281da';
-                const abi = [
-                    "function getAllBids() view returns (tuple(uint256 totalAmount, string urlString, tuple(address contributor, uint256 amount, uint256 timestamp)[] contributions)[])"
-                ];
-
+                const abi = ["function getAllBids() view returns (tuple(uint256 totalAmount, string urlString, tuple(address contributor, uint256 amount, uint256 timestamp)[] contributions)[])"];
                 const contract = new ethers.Contract(contractAddress, abi, provider);
-                const rawBids = await contract.getAllBids();
                 
-                console.log("Bids fetched:", rawBids.length);
-
+                const rawBids = await contract.getAllBids();
                 const factsRes = await fetch('/api/facts');
                 const savedFacts = await factsRes.json();
 
-                this.bids = rawBids.map(bid => {
+                // 1. Initial Map
+                let tempBids = rawBids.map(bid => {
                     const urlStr = bid.urlString;
                     const fact = savedFacts.find(f => f.url_string === urlStr);
-                    
-                    // Format contributions for the "isMyBid" check
                     const contributors = bid.contributions.map(c => c.contributor.toLowerCase());
 
                     return {
                         url: urlStr,
                         amount: Number(bid.totalAmount),
                         contributors: contributors,
-                        projectName: this.extractProjectName(urlStr),
-                        name: contributors[0] ? (contributors[0].slice(0,6) + '...') : 'Anon',
+                        // Use DB title first, then smart parser
+                        projectName: this.extractProjectName(urlStr, fact?.title),
+                        bidderAddress: contributors[0],
+                        name: contributors[0].slice(0, 6) + '...', // Fallback
                         fact: fact || null,
                         hasRead: false,
                         claiming: false,
@@ -76,10 +62,54 @@ document.addEventListener('alpine:init', () => {
                     };
                 }).sort((a, b) => b.amount - a.amount);
 
+                this.bids = tempBids;
+
+                // 2. Resolve Usernames (Reverse Lookup)
+                const uniqueAddresses = [...new Set(tempBids.map(b => b.bidderAddress))].join(',');
+                const nameMapRes = await fetch(`/api/lookup-names?addresses=${uniqueAddresses}`);
+                const nameMap = await nameMapRes.json();
+
+                this.bids = this.bids.map(bid => ({
+                    ...bid,
+                    name: nameMap[bid.bidderAddress.toLowerCase()] || bid.name
+                }));
+
             } catch (error) {
                 console.error('Load error:', error);
             } finally {
                 this.loading = false;
+            }
+        },
+
+        // SMART NAME PARSER
+        extractProjectName(url, dbTitle) {
+            // If the bidder has already saved a fact title, use that!
+            if (dbTitle && dbTitle.trim().length > 0) return dbTitle;
+
+            try {
+                const urlObj = new URL(url);
+                const params = urlObj.searchParams;
+
+                // Handle Farcaster Mini Apps (farcaster.xyz)
+                if (urlObj.hostname.includes('farcaster.xyz')) {
+                    // Try to get 'name' or 'text' from the query string
+                    const nameParam = params.get('name') || params.get('text');
+                    if (nameParam) return nameParam.split('-').join(' ').toUpperCase();
+                }
+
+                // Handle Zora (zora.co)
+                if (urlObj.hostname.includes('zora.co')) {
+                    const paths = urlObj.pathname.split('/');
+                    // Usually the last part of the path is the project name
+                    const zoraName = paths[paths.length - 1];
+                    if (zoraName && zoraName.length > 3) return zoraName.split('-').join(' ').toUpperCase();
+                }
+
+                // Default fallback
+                let domain = urlObj.hostname.replace('www.', '');
+                return domain.charAt(0).toUpperCase() + domain.slice(1);
+            } catch (e) {
+                return 'NEW PROJECT';
             }
         },
 
@@ -93,22 +123,20 @@ document.addEventListener('alpine:init', () => {
                 try {
                     const keyRes = await fetch('/api/neynar-key');
                     const { key } = await keyRes.json();
-
                     const userRes = await fetch(`https://api.neynar.com/v2/farcaster/user/bulk?fids=${fid}`, {
                         headers: { api_key: key }
                     });
                     const userData = (await userRes.json()).users[0] || {};
 
                     this.user = {
-                        fid,
-                        wallet,
+                        fid, wallet,
                         username: userData.username || 'user',
                         pfp: userData.pfp_url || '',
                         score: userData.user_score || 0,
                         loggedIn: true
                     };
 
-                    await fetch('/api/user', {
+                    fetch('/api/user', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(this.user)
@@ -209,12 +237,5 @@ document.addEventListener('alpine:init', () => {
         isMyBid(bid) {
             return this.user.loggedIn && bid.contributors.includes(this.user.wallet);
         },
-
-        extractProjectName(url) {
-            try {
-                const urlObj = new URL(url);
-                return urlObj.hostname.replace('www.', '');
-            } catch (e) { return 'Project'; }
-        }
     }));
 });
