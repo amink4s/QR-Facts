@@ -3,69 +3,62 @@ document.addEventListener('alpine:init', () => {
         user: { username: '', pfp: '', score: 0, wallet: '', fid: null, loggedIn: false },
         bids: [],
         loading: true,
-        
-        // Reader State
         readerOpen: false,
         activeBid: null,
         timerStarted: false,
         canFinish: false,
         countdown: 7,
-
-        // Edit State
         editModalOpen: false,
         form: { title: '', article: '', ca: '', url: '' },
+        retries: 0, // Added to prevent infinite loop
 
         async init() {
-            console.log("Initializing App...");
+            console.log("Checking for Viem...");
             
-            // 1. Ensure Viem is loaded
-            if (!window.viem) {
-                console.error("Viem not found on window. Retrying in 1s...");
-                setTimeout(() => this.init(), 1000);
+            // Check for window.viem (lowercase) or window.Viem (uppercase)
+            const viemLib = window.viem || window.Viem;
+
+            if (!viemLib) {
+                if (this.retries < 5) {
+                    this.retries++;
+                    console.warn(`Viem not found. Retry ${this.retries}/5...`);
+                    setTimeout(() => this.init(), 1000);
+                } else {
+                    console.error("Viem failed to load after 5 retries. Check internet or CDN link.");
+                    this.loading = false; // Stop spinner so user sees error
+                }
                 return;
             }
 
-            // 2. Clear Splash Screen immediately
+            console.log("Viem located! Initializing SDK...");
+
             if (window.farcaster?.sdk) {
                 try {
                     await window.farcaster.sdk.actions.ready();
-                    console.log("Farcaster SDK Ready");
-                } catch (e) { console.warn("SDK Ready error:", e); }
+                } catch (e) { console.warn("SDK ready error", e); }
             }
 
-            // 3. Load Data
             await this.loadBids();
             await this.autoLogin();
         },
 
         async loadBids() {
             this.loading = true;
-            console.log("Fetching Bids...");
-            
             try {
-                const { createPublicClient, http } = window.viem;
+                // Use whichever variable was found
+                const v = window.viem || window.Viem;
+                const { createPublicClient, http } = v;
                 
-                // Using a reliable public mirror for Base
                 const client = createPublicClient({ 
                     chain: { id: 8453, name: 'Base' }, 
-                    transport: http('https://mainnet.base.org'),
-                    pollingInterval: 4_000 
+                    transport: http('https://mainnet.base.org') 
                 });
 
-                // Set a timeout for the contract call
-                const contractPromise = client.readContract({
+                const rawBids = await client.readContract({
                     address: '0x6A0FB6dfDA897dAe3c69D06d5D6B5d6b251281da',
                     abi: [{ "inputs": [], "name": "getAllBids", "outputs": [{ "components": [{ "name": "totalAmount", "type": "uint256" }, { "name": "urlString", "type": "string" }, { "name": "contributions", "type": "tuple[]", "components": [{ "name": "contributor", "type": "address" }] }], "type": "tuple[]" }], "stateMutability": "view", "type": "function" }],
                     functionName: 'getAllBids'
                 });
-
-                // Race the contract call against a 10-second timeout
-                const timeoutPromise = new Promise((_, reject) => 
-                    setTimeout(() => reject(new Error("RPC Timeout")), 10000)
-                );
-
-                const rawBids = await Promise.race([contractPromise, timeoutPromise]);
-                console.log("Raw Bids received:", rawBids.length);
 
                 const factsRes = await fetch('/api/facts');
                 const savedFacts = await factsRes.json();
@@ -77,7 +70,7 @@ document.addEventListener('alpine:init', () => {
                         amount: Number(bid.totalAmount),
                         contributors: bid.contributions.map(c => c.contributor.toLowerCase()),
                         projectName: this.extractProjectName(bid.urlString),
-                        name: bid.contributions[0]?.contributor.slice(0,6) || 'Unknown',
+                        name: bid.contributions[0]?.contributor.slice(0,6) || 'Anon',
                         fact: fact || null,
                         hasRead: false,
                         claiming: false,
@@ -86,16 +79,13 @@ document.addEventListener('alpine:init', () => {
                 }).sort((a, b) => b.amount - a.amount);
 
             } catch (error) {
-                console.error('CRITICAL LOAD ERROR:', error);
-                // If it fails, we show at least one "Empty" state so the user isn't stuck on a spinner
-                if (this.bids.length === 0) {
-                    this.bids = []; 
-                }
+                console.error('Load error:', error);
             } finally {
                 this.loading = false;
             }
         },
 
+        // Rest of the functions (autoLogin, openReader, etc.) stay the same as before...
         async autoLogin() {
             if (!window.farcaster?.sdk?.context) return;
             const context = window.farcaster.sdk.context;
