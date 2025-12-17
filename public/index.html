@@ -7,12 +7,10 @@
     <meta name="fc:miniapp" content='{"version":"1","imageUrl":"https://qr-facts.vercel.app/image.png","button":{"title":"qr facts","action":{"type":"launch_miniapp","name":"qr facts"}}}' />
     
     <script src="https://cdn.jsdelivr.net/npm/ethers@6.13.2/dist/ethers.umd.min.js"></script>
-
     <script src="https://cdn.jsdelivr.net/npm/@farcaster/miniapp-sdk@latest/dist/index.min.js"></script>
-
     <script src="https://cdn.tailwindcss.com"></script>
-
     <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+
     <style>
         [x-cloak] { display: none !important; }
         body { background: #0b0b0b; color: #f0f0f0; font-family: 'Inter', sans-serif; }
@@ -53,7 +51,7 @@
                     <div class="flex justify-between items-start mb-3">
                         <div class="flex-1 pr-4">
                             <h2 class="text-lg font-bold text-white leading-tight" x-text="bid.projectName"></h2>
-                            <p class="text-gray-500 text-xs" x-text="'Bid by ' + bid.name"></p>
+                            <p class="text-gray-500 text-xs" x-text="'Spotlight by @' + bid.creatorUsername"></p>
                         </div>
                         <div class="text-right">
                             <div class="text-neon font-black text-sm" x-text="'$' + (bid.amount / 1000000).toLocaleString()"></div>
