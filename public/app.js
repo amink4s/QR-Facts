@@ -49,13 +49,15 @@ document.addEventListener('alpine:init', () => {
 
         async claim(bid) {
             if (!this.user.loggedIn) return alert("Please log in via Farcaster");
-            const res = await fetch('/api/claim', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ wallet: this.user.wallet })
-            });
-            const data = await res.json();
-            alert(data.message || data.error);
+            try {
+                const res = await fetch('/api/claims', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ wallet: this.user.wallet, url: bid.url })
+                });
+                const data = await res.json();
+                alert(data.message || data.error || (res.ok ? 'Claim successful' : 'Claim failed'));
+            } catch (e) { alert('Claim failed: ' + e.message); }
         }
     }));
 });

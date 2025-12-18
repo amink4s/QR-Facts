@@ -2,11 +2,20 @@ import { neon } from '@neondatabase/serverless';
 import { ethers } from 'ethers';
 
 export default async function handler(req, res) {
-    const { wallet } = req.body;
+    const { wallet, url } = req.body;
+    if (!wallet || !url) return res.status(400).json({ error: 'Missing wallet or url' });
     const userWallet = wallet.toLowerCase();
 
     try {
         const sql = neon(process.env.DATABASE_URL);
+
+        // Ensure facts exist for the provided url
+        const factsRow = await sql`SELECT content FROM project_facts WHERE urlString = ${url} LIMIT 1`;
+        if (!factsRow || factsRow.length === 0) return res.status(400).json({ error: 'No facts to claim for this project.' });
+        const content = factsRow[0].content || '';
+        if (content.toLowerCase().includes('not provided') || content.trim().length < 10) {
+            return res.status(400).json({ error: 'No facts to claim for this project.' });
+        }
 
         // 1. Check Daily Limit
         const today = await sql`SELECT * FROM facts_claims WHERE wallet_address = ${userWallet} AND claim_date = CURRENT_DATE`;
