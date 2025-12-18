@@ -1,51 +1,50 @@
-import { Pool } from '@neondatabase/serverless';
-import { createWalletClient, http, parseUnits } from 'viem';
-import { privateKeyToAccount } from 'viem/accounts';
-import { base } from 'viem/chains';
-
-const FACTS_CA = '0x97fad6f41377eb5a530e9652818a3deb31d12b07';
+import { neon } from '@neondatabase/serverless';
+import { ethers } from 'ethers';
 
 export default async function handler(req, res) {
     if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-    const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-    const { fid, url, wallet, score } = req.body;
-
-    // 1. Determine Reward
-    let rewardAmount = "0";
-    if (score >= 0.9) rewardAmount = "500000";
-    else if (score >= 0.6) rewardAmount = "250000";
-    else return res.status(403).json({ error: 'Neynar score too low' });
+    const { wallet } = req.body;
+    const userWallet = wallet.toLowerCase();
 
     try {
-        // 2. Double-claim check
-        const check = await pool.query('SELECT id FROM claims WHERE fid = $1 AND url_string = $2', [fid, url]);
-        if (check.rows.length > 0) return res.status(400).json({ error: 'Already claimed for this bid' });
+        const sql = neon(process.env.DATABASE_URL);
+        const provider = new ethers.JsonRpcProvider('https://mainnet.base.org');
+        const masterWallet = ethers.Wallet.fromPhrase(process.env.SEED_PHRASE, provider);
+        
+        // 1. Check if user already claimed today
+        const existingClaim = await sql`
+            SELECT * FROM facts_claims 
+            WHERE wallet_address = ${userWallet} AND claim_date = CURRENT_DATE
+        `;
+        if (existingClaim.length > 0) return res.status(403).json({ error: 'Already claimed today' });
 
-        // 3. Send Tokens via Base
-        const account = privateKeyToAccount(process.env.REWARDER_PRIVATE_KEY);
-        const client = createWalletClient({ 
-            account, 
-            chain: base, 
-            transport: http('https://mainnet.base.org') 
+        // 2. Fetch Neynar Score
+        const neynarRes = await fetch(`https://api.neynar.com/v2/farcaster/user/bulk_by_address?addresses=${userWallet}`, {
+            headers: { 'api_key': process.env.NEYNAR_API_KEY }
         });
+        const neynarData = await neynarRes.json();
+        const score = neynarData[userWallet]?.[0]?.neynar_user_score || 0;
 
-        const hash = await client.writeContract({
-            address: FACTS_CA,
-            abi: [{"inputs":[{"name":"to","type":"address"},{"name":"amount","type":"uint256"}],"name":"transfer","outputs":[{"name":"","type":"bool"}],"stateMutability":"nonpayable","type":"function"}],
-            functionName: 'transfer',
-            args: [wallet, parseUnits(rewardAmount, 18)]
-        });
+        // 3. Determine Reward Tier
+        let amount = 0;
+        if (score >= 0.9) amount = 500000;
+        else if (score >= 0.6) amount = 250000;
+        else return res.status(403).json({ error: `Score too low (${score.toFixed(2)})` });
 
-        // 4. Log to DB
-        await pool.query(
-            'INSERT INTO claims (fid, url_string, amount) VALUES ($1, $2, $3)',
-            [fid, url, rewardAmount]
-        );
+        // 4. Send Transaction (ERC20 Transfer)
+        const tokenAbi = ["function transfer(address to, uint256 amount) returns (bool)"];
+        const tokenContract = new ethers.Contract(process.env.FACTS_TOKEN_ADDRESS, tokenAbi, masterWallet);
+        
+        // Assuming 18 decimals for $FACTS
+        const tx = await tokenContract.transfer(userWallet, ethers.parseUnits(amount.toString(), 18));
+        await tx.wait();
 
-        res.status(200).json({ success: true, txHash: hash });
+        // 5. Record claim in DB
+        await sql`INSERT INTO facts_claims (wallet_address, amount) VALUES (${userWallet}, ${amount})`;
+
+        return res.status(200).json({ success: true, amount, hash: tx.hash });
     } catch (e) {
-        console.error("Claim Error:", e);
-        res.status(500).json({ error: e.message || 'Transaction failed' });
+        return res.status(500).json({ error: e.message });
     }
 }
