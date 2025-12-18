@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" class="dark">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -10,12 +10,12 @@
     <script src="https://cdn.jsdelivr.net/npm/ethers@6.13.2/dist/ethers.umd.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
-    <style> [x-cloak] { display: none !important; } </style>
+    <style>[x-cloak] { display: none !important; }</style>
 </head>
-<body x-data="app" class="bg-black text-white min-h-screen p-4 font-sans">
+<body x-data="app" class="bg-black text-white min-h-screen p-4">
 
     <header class="max-w-md mx-auto flex justify-between items-center py-6 border-b border-white/10 mb-6">
-        <h1 class="text-xl font-black text-purple-500">QR FACTS</h1>
+        <h1 class="text-xl font-black italic text-purple-500">QR FACTS</h1>
         <template x-if="user.loggedIn">
             <div class="flex items-center gap-2">
                 <span class="text-[10px] text-gray-400" x-text="'@' + user.username"></span>
@@ -25,31 +25,33 @@
     </header>
 
     <main class="max-w-md mx-auto space-y-4 pb-24">
+        <div x-show="loading" class="text-center py-20 text-gray-600 text-xs">LOADING BIDS...</div>
+
         <template x-for="bid in bids" :key="bid.url">
-            <div class="bg-white/5 border border-white/10 rounded-3xl p-5">
+            <div class="bg-[#111] border border-white/5 rounded-3xl p-5">
                 <div class="flex justify-between items-start mb-4">
-                    <div class="flex-1">
-                        <h2 class="text-lg font-bold" x-text="bid.projectTitle"></h2>
+                    <div class="flex-1 overflow-hidden">
+                        <h2 class="text-lg font-bold truncate" x-text="bid.projectTitle"></h2>
                         <p class="text-[10px] font-bold text-purple-400 uppercase" x-text="bid.bidderName"></p>
                     </div>
                     <div class="text-right">
                         <div class="text-white font-black" x-text="'$' + (bid.amount / 1000000).toLocaleString()"></div>
-                        <div class="text-[7px] text-gray-500 uppercase">USDC</div>
+                        <div class="text-[7px] text-gray-500">USDC</div>
                     </div>
                 </div>
 
-                <div class="grid grid-cols-2 gap-3 mt-4">
-                    <button @click="openReader(bid)" class="bg-white/5 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest border border-white/10">
-                        <span x-text="bid.hasRead ? '✓ CHECKED' : 'VERIFY FACTS'"></span>
+                <div class="grid grid-cols-2 gap-3">
+                    <button @click="openReader(bid)" class="bg-white/5 py-3 rounded-xl text-[10px] font-bold border border-white/10">
+                        <span x-text="bid.hasRead ? '✓ CHECKED' : 'VERIFY'"></span>
                     </button>
-                    <button @click="claim(bid)" :disabled="!bid.hasRead" :class="bid.hasRead ? 'bg-purple-600' : 'bg-white/5 text-gray-700'" class="py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition">
-                        CLAIM $FACTS
+                    <button @click="claimReward(bid)" :disabled="!bid.hasRead" :class="bid.hasRead ? 'bg-purple-600' : 'bg-white/5 text-gray-600'" class="py-3 rounded-xl text-[10px] font-bold">
+                        CLAIM
                     </button>
                 </div>
 
                 <template x-if="user.wallet && bid.bidderWallet && user.wallet.toLowerCase() === bid.bidderWallet.toLowerCase()">
-                    <button @click="openEditor(bid)" class="w-full mt-3 py-2 border border-purple-500/30 text-purple-400 text-[10px] font-bold rounded-xl hover:bg-purple-500/10">
-                        ✍️ EDIT PROJECT FACTS
+                    <button @click="openEditor(bid)" class="w-full mt-3 py-2 border border-purple-500/30 text-purple-400 text-[9px] font-bold rounded-xl">
+                        ✍️ EDIT YOUR FACTS
                     </button>
                 </template>
             </div>
@@ -58,8 +60,109 @@
 
     <script type="module">
         import { sdk } from 'https://esm.sh/@farcaster/miniapp-sdk';
-        window.fc_sdk = sdk; // Export to global for Alpine to use
+        
+        // 1. Immediately signal ready to clear splash screen
+        sdk.actions.ready();
+
+        window.addEventListener('alpine:init', () => {
+            Alpine.data('app', () => ({
+                user: { username: 'anonymous', pfp: '', wallet: '', loggedIn: false },
+                bids: [],
+                loading: true,
+                contractAddress: '0x6A0FB6dfDA897dAe3c69D06d5D6B5d6b251281da',
+                readerOpen: false,
+                editorOpen: false,
+                activeBid: null,
+                activeFacts: '',
+                editableContent: '',
+                canFinish: false,
+                countdown: 7,
+
+                async init() {
+                    try {
+                        const context = await sdk.context;
+                        if (context?.user) {
+                            this.user = {
+                                username: context.user.username,
+                                pfp: context.user.pfpUrl,
+                                wallet: context.user.custodyAddress.toLowerCase(),
+                                fid: context.user.fid,
+                                loggedIn: true
+                            };
+                            // Sync with Neon
+                            fetch('/api/sync-user', {
+                                method: 'POST',
+                                headers: {'Content-Type': 'application/json'},
+                                body: JSON.stringify(this.user)
+                            });
+                        }
+                    } catch (e) { console.error("SDK Error:", e); }
+                    
+                    await this.loadBids();
+                },
+
+                async loadBids() {
+                    this.loading = true;
+                    try {
+                        const provider = new ethers.JsonRpcProvider('https://mainnet.base.org');
+                        const contract = new ethers.Contract(this.contractAddress, [
+                            "function getAllBids() view returns (tuple(uint256 totalAmount, string urlString, tuple(address contributor, uint256 amount, uint256 timestamp)[] contributions)[])",
+                            "function getBidderName(address _bidder) view returns (string)"
+                        ], provider);
+
+                        const rawBids = await contract.getAllBids();
+                        this.bids = rawBids.map(bid => ({
+                            url: bid.urlString,
+                            amount: Number(bid.totalAmount),
+                            bidderName: "...",
+                            bidderWallet: bid.contributions[0].contributor.toLowerCase(),
+                            projectTitle: "Loading...",
+                            hasRead: false
+                        }));
+                        this.bids.sort((a,b) => b.amount - a.amount);
+                        this.loading = false;
+                        this.resolveMetadata(contract);
+                    } catch (e) { this.loading = false; }
+                },
+
+                async resolveMetadata(contract) {
+                    for (let bid of this.bids) {
+                        // Priority 1: Current User
+                        if (this.user.wallet && bid.bidderWallet === this.user.wallet) {
+                            bid.bidderName = "@" + this.user.username;
+                        } else {
+                            // Priority 2: Neynar Lookup via our Proxy
+                            fetch(`/api/lookup-name?address=${bid.bidderWallet}`)
+                                .then(r => r.json())
+                                .then(async data => {
+                                    if (data.username) {
+                                        bid.bidderName = "@" + data.username;
+                                    } else {
+                                        // Priority 3: Contract Name
+                                        const name = await contract.getBidderName(bid.bidderWallet);
+                                        bid.bidderName = (name && name.trim() !== "") ? name : bid.bidderWallet.slice(0,6);
+                                    }
+                                });
+                        }
+                        // Project Title Scraper
+                        fetch(`/api/get-title?url=${encodeURIComponent(bid.url)}`)
+                            .then(r => r.json()).then(d => { bid.projectTitle = d.title; });
+                    }
+                },
+
+                async claimReward(bid) {
+                    const res = await fetch('/api/claim', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ wallet: this.user.wallet })
+                    });
+                    const data = await res.json();
+                    alert(data.message || data.error);
+                },
+
+                // (Add your existing openReader, openEditor, saveFacts here)
+            }));
+        });
     </script>
-    <script src="app.js"></script>
 </body>
 </html>
