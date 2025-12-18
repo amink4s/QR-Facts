@@ -32,42 +32,22 @@ document.addEventListener('alpine:init', () => {
                 ], provider);
 
                 const rawBids = await contract.getAllBids();
+                
+                // Process basic bid data
+                this.bids = rawBids.map(bid => ({
+                    url: bid.urlString,
+                    amount: Number(bid.totalAmount),
+                    bidderName: "...", // Loading state
+                    bidderWallet: bid.contributions[0].contributor,
+                    projectTitle: "Loading...",
+                    hasRead: false
+                }));
 
-                // Process each bid one by one to ensure bidder names are fetched
-                const processedBids = [];
-                for (let bid of rawBids) {
-                    const creatorAddr = bid.contributions[0].contributor;
-                    const url = bid.urlString;
-
-                    let bidderName = "Anonymous";
-                    try {
-                        // Ensure address is formatted correctly for the call
-                        const name = await contract.getBidderName(ethers.getAddress(creatorAddr));
-                        if (name && name.trim() !== "") {
-                            bidderName = name;
-                        }
-                    } catch (e) { 
-                        console.error("Bidder name fetch failed for:", creatorAddr, e); 
-                    }
-
-                    processedBids.push({
-                        url: url,
-                        amount: Number(bid.totalAmount),
-                        bidderName: bidderName,
-                        bidderWallet: creatorAddr,
-                        projectTitle: "Loading Title...", 
-                        hasRead: false,
-                        claiming: false,
-                        claimed: false
-                    });
-                }
-
-                this.bids = processedBids;
                 this.bids.sort((a, b) => b.amount - a.amount);
                 this.loading = false;
 
-                // Background: Fetch Titles
-                this.fetchProjectTitles();
+                // Fire off background resolution
+                this.resolveMetadata(contract);
 
             } catch (err) {
                 console.error("Load failed:", err);
@@ -75,16 +55,39 @@ document.addEventListener('alpine:init', () => {
             }
         },
 
-        async fetchProjectTitles() {
-            this.bids.forEach(async (bid) => {
+        async resolveMetadata(contract) {
+            // 1. Resolve Bidder Names (Contract then Neynar)
+            const addresses = this.bids.map(b => b.bidderWallet);
+            
+            // Fetch Neynar usernames in bulk for the fallback
+            let neynarMap = {};
+            try {
+                const nRes = await fetch(`/api/lookup-names?addresses=${addresses.join(',')}`);
+                neynarMap = await nRes.json();
+            } catch (e) { console.warn("Neynar fallback unavailable"); }
+
+            for (let bid of this.bids) {
                 try {
-                    const res = await fetch(`/api/get-title?url=${encodeURIComponent(bid.url)}`);
-                    const data = await res.json();
-                    bid.projectTitle = data.title;
-                } catch (e) {
-                    bid.projectTitle = "View Project";
-                }
-            });
+                    // Try Contract first (Matches X users / custom names)
+                    const onChainName = await contract.getBidderName(bid.bidderWallet);
+                    
+                    if (onChainName && onChainName.trim() !== "") {
+                        bid.bidderName = onChainName;
+                    } else if (neynarMap[bid.bidderWallet.toLowerCase()]) {
+                        // Fallback to Farcaster username
+                        bid.bidderName = "@" + neynarMap[bid.bidderWallet.toLowerCase()];
+                    } else {
+                        // Final Fallback to wallet snippet
+                        bid.bidderName = bid.bidderWallet.slice(0, 6);
+                    }
+                } catch (e) { bid.bidderName = bid.bidderWallet.slice(0, 6); }
+
+                // 2. Resolve Project Titles
+                fetch(`/api/get-title?url=${encodeURIComponent(bid.url)}`)
+                    .then(res => res.json())
+                    .then(data => { bid.projectTitle = data.title; })
+                    .catch(() => { bid.projectTitle = "Project Spotlight"; });
+            }
         },
 
         openReader(bid) {
