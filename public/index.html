@@ -4,15 +4,26 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>QR FACTS</title>
-    
     <meta name="fc:miniapp" content='{"version":"1","imageUrl":"https://qr-facts.vercel.app/image.png","button":{"title":"Launch","action":{"type":"launch_miniapp","name":"qr facts"}}}' />
-
+    
     <script src="https://cdn.jsdelivr.net/npm/ethers@6.13.2/dist/ethers.umd.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <style>[x-cloak] { display: none !important; }</style>
+
+    <script>
+        // Prevent Alpine race: define a minimal global `app` function so x-data="app" doesn't throw
+        window.app = function() {
+            return {
+                user: { username: 'anonymous', pfp: '', wallet: '', loggedIn: false },
+                bids: [],
+                loading: true,
+                // no-op placeholders until the real Alpine component is registered
+                init() {}, openReader() {}, openEditor() {}, claimReward() {}
+            };
+        };
+    </script>
 </head>
-<body x-data="app" class="bg-black text-white min-h-screen p-4">
+<body x-data="app" class="bg-black text-white min-h-screen p-4" x-cloak>
 
     <header class="max-w-md mx-auto flex justify-between items-center py-6 border-b border-white/10 mb-6">
         <h1 class="text-xl font-black italic text-purple-500">QR FACTS</h1>
@@ -25,46 +36,67 @@
     </header>
 
     <main class="max-w-md mx-auto space-y-4 pb-24">
-        <div x-show="loading" class="text-center py-20 text-gray-600 text-xs">LOADING BIDS...</div>
+        <div x-show="loading" class="text-center py-20 text-gray-600 text-xs uppercase tracking-widest">Syncing Knowledge Base...</div>
 
         <template x-for="bid in bids" :key="bid.url">
-            <div class="bg-[#111] border border-white/5 rounded-3xl p-5">
+            <div class="bg-[#111] border border-white/5 rounded-3xl p-5 shadow-2xl">
                 <div class="flex justify-between items-start mb-4">
                     <div class="flex-1 overflow-hidden">
-                        <h2 class="text-lg font-bold truncate" x-text="bid.projectTitle"></h2>
-                        <p class="text-[10px] font-bold text-purple-400 uppercase" x-text="bid.bidderName"></p>
+                        <h2 class="text-lg font-bold truncate text-gray-100" x-text="bid.projectTitle"></h2>
+                        <p class="text-[10px] font-black text-purple-400 uppercase" x-text="bid.bidderName"></p>
                     </div>
-                    <div class="text-right">
-                        <div class="text-white font-black" x-text="'$' + (bid.amount / 1000000).toLocaleString()"></div>
-                        <div class="text-[7px] text-gray-500">USDC</div>
+                    <div class="bg-purple-500/10 px-3 py-1 rounded-lg text-right">
+                        <div class="text-white font-black text-sm" x-text="'$' + (bid.amount / 1000000).toLocaleString()"></div>
+                        <div class="text-[7px] text-purple-500 uppercase font-bold">USDC</div>
                     </div>
                 </div>
 
-                <div class="grid grid-cols-2 gap-3">
-                    <button @click="openReader(bid)" class="bg-white/5 py-3 rounded-xl text-[10px] font-bold border border-white/10">
-                        <span x-text="bid.hasRead ? '✓ CHECKED' : 'VERIFY'"></span>
+                <div class="grid grid-cols-2 gap-3 mt-6">
+                    <button @click="openReader(bid)" class="bg-white/5 hover:bg-white/10 py-3.5 rounded-xl text-[10px] font-black uppercase border border-white/10 transition">
+                        <span x-text="bid.hasRead ? '✓ CHECKED' : 'VERIFY FACTS'"></span>
                     </button>
-                    <button @click="claimReward(bid)" :disabled="!bid.hasRead" :class="bid.hasRead ? 'bg-purple-600' : 'bg-white/5 text-gray-600'" class="py-3 rounded-xl text-[10px] font-bold">
-                        CLAIM
+                    <button @click="claimReward(bid)" :disabled="!bid.hasRead" :class="bid.hasRead ? 'bg-purple-600' : 'bg-white/5 text-gray-700'" class="py-3.5 rounded-xl text-[10px] font-black uppercase transition">
+                        CLAIM $FACTS
                     </button>
                 </div>
 
                 <template x-if="user.wallet && bid.bidderWallet && user.wallet.toLowerCase() === bid.bidderWallet.toLowerCase()">
-                    <button @click="openEditor(bid)" class="w-full mt-3 py-2 border border-purple-500/30 text-purple-400 text-[9px] font-bold rounded-xl">
-                        ✍️ EDIT YOUR FACTS
+                    <button @click="openEditor(bid)" class="w-full mt-3 py-2.5 bg-purple-500/5 border border-purple-500/20 text-purple-400 text-[9px] font-black uppercase rounded-xl">
+                        ✍️ EDIT YOUR PROJECT FACTS
                     </button>
                 </template>
             </div>
         </template>
     </main>
 
+    <div x-show="readerOpen" x-cloak class="fixed inset-0 bg-black z-50 p-8 flex flex-col backdrop-blur-3xl">
+        <div class="flex-1 pt-10">
+            <h2 class="text-2xl font-black italic text-white mb-1" x-text="activeBid?.projectTitle"></h2>
+            <p class="text-[10px] text-purple-500 font-bold mb-8 uppercase" x-text="'Facts by ' + activeBid?.bidderName"></p>
+            <div class="text-gray-300 text-sm leading-relaxed bg-white/5 p-6 rounded-2xl border border-white/10" x-text="activeFacts"></div>
+        </div>
+        <button @click="readerOpen = false; activeBid.hasRead = true" :disabled="!canFinish" :class="canFinish ? 'bg-purple-600' : 'bg-white/10 text-gray-600'" class="w-full py-5 rounded-3xl font-black text-xs uppercase">
+            <span x-text="canFinish ? 'CONFIRM VERIFICATION' : 'REVIEWING... ' + countdown + 's'"></span>
+        </button>
+    </div>
+
+    <div x-show="editorOpen" x-cloak class="fixed inset-0 bg-black z-[60] p-8 flex flex-col">
+        <h2 class="text-2xl font-black italic mb-6">Edit Facts</h2>
+        <textarea x-model="editableContent" class="flex-1 bg-white/5 border border-white/10 rounded-2xl p-6 text-sm text-gray-200 focus:outline-none focus:border-purple-500 mb-8" placeholder="Enter project facts..."></textarea>
+        <div class="flex gap-4">
+            <button @click="editorOpen = false" class="flex-1 py-4 bg-white/5 rounded-2xl font-bold text-xs uppercase">Cancel</button>
+            <button @click="saveFacts()" class="flex-[2] py-4 bg-purple-600 rounded-2xl font-bold text-xs uppercase">Save Changes</button>
+        </div>
+    </div>
+
     <script type="module">
         import { sdk } from 'https://esm.sh/@farcaster/miniapp-sdk';
-        
-        // 1. Immediately signal ready to clear splash screen
-        sdk.actions.ready();
+        import Alpine from 'https://esm.sh/alpinejs';
 
-        window.addEventListener('alpine:init', () => {
+        // 1. Do NOT hide the splash screen immediately — wait until the interface is fully ready.
+        // We'll call `sdk.actions.ready()` from inside `init()` after the UI and bids have loaded.
+
+        document.addEventListener('alpine:init', () => {
             Alpine.data('app', () => ({
                 user: { username: 'anonymous', pfp: '', wallet: '', loggedIn: false },
                 bids: [],
@@ -89,16 +121,21 @@
                                 fid: context.user.fid,
                                 loggedIn: true
                             };
-                            // Sync with Neon
+                            // Sync with Neon DB
                             fetch('/api/sync-user', {
                                 method: 'POST',
                                 headers: {'Content-Type': 'application/json'},
                                 body: JSON.stringify(this.user)
                             });
                         }
-                    } catch (e) { console.error("SDK Error:", e); }
+                    } catch (e) { console.error("Farcaster SDK Error", e); }
                     
                     await this.loadBids();
+
+                    // Now the interface is prepared — tell Farcaster it's ready to hide the splash
+                    try {
+                        await sdk.actions.ready();
+                    } catch (e) { console.warn('Farcaster sdk.actions.ready failed', e); }
                 },
 
                 async loadBids() {
@@ -127,27 +164,59 @@
 
                 async resolveMetadata(contract) {
                     for (let bid of this.bids) {
-                        // Priority 1: Current User
+                        // User Resolution Logic
                         if (this.user.wallet && bid.bidderWallet === this.user.wallet) {
-                            bid.bidderName = "@" + this.user.username;
+                            bid.bidderName = "@" + this.user.username; // Use context name for self
                         } else {
-                            // Priority 2: Neynar Lookup via our Proxy
+                            // Resolve others via Neynar Proxy
                             fetch(`/api/lookup-name?address=${bid.bidderWallet}`)
                                 .then(r => r.json())
                                 .then(async data => {
                                     if (data.username) {
                                         bid.bidderName = "@" + data.username;
                                     } else {
-                                        // Priority 3: Contract Name
-                                        const name = await contract.getBidderName(bid.bidderWallet);
-                                        bid.bidderName = (name && name.trim() !== "") ? name : bid.bidderWallet.slice(0,6);
+                                        const onChain = await contract.getBidderName(bid.bidderWallet);
+                                        bid.bidderName = (onChain && onChain.trim() !== "") ? onChain : bid.bidderWallet.slice(0,6);
                                     }
                                 });
                         }
-                        // Project Title Scraper
+                        // Title Resolution
                         fetch(`/api/get-title?url=${encodeURIComponent(bid.url)}`)
                             .then(r => r.json()).then(d => { bid.projectTitle = d.title; });
                     }
+                },
+
+                async openReader(bid) {
+                    this.activeBid = bid;
+                    this.activeFacts = "Syncing facts...";
+                    this.readerOpen = true;
+                    this.canFinish = false;
+                    this.countdown = 7;
+                    const res = await fetch(`/api/get-facts?url=${encodeURIComponent(bid.url)}`);
+                    const data = await res.json();
+                    this.activeFacts = data.content;
+                    let timer = setInterval(() => {
+                        this.countdown--;
+                        if (this.countdown <= 0) { clearInterval(timer); this.canFinish = true; }
+                    }, 1000);
+                },
+
+                async openEditor(bid) {
+                    this.activeBid = bid;
+                    this.editorOpen = true;
+                    this.editableContent = "Loading...";
+                    const res = await fetch(`/api/get-facts?url=${encodeURIComponent(bid.url)}`);
+                    const data = await res.json();
+                    this.editableContent = (data.content.includes("not provided")) ? "" : data.content;
+                },
+
+                async saveFacts() {
+                    const res = await fetch('/api/save-facts', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ url: this.activeBid.url, content: this.editableContent, wallet: this.user.wallet })
+                    });
+                    if (res.ok) this.editorOpen = false;
                 },
 
                 async claimReward(bid) {
@@ -158,11 +227,12 @@
                     });
                     const data = await res.json();
                     alert(data.message || data.error);
-                },
-
-                // (Add your existing openReader, openEditor, saveFacts here)
+                }
             }));
         });
+
+        // 2. Start Alpine manually to ensure it happens AFTER logic is registered
+        Alpine.start();
     </script>
 </body>
 </html>
