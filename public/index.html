@@ -11,73 +11,82 @@
     <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <style>
         [x-cloak] { display: none !important; }
-        .neon-text { color: #a855f7; text-shadow: 0 0 10px rgba(168, 85, 247, 0.3); }
-        .card-glow { border: 1px solid rgba(168, 85, 247, 0.2); transition: all 0.3s ease; }
-        .card-glow:hover { border-color: #a855f7; box-shadow: 0 0 20px rgba(168, 85, 247, 0.1); }
+        .neon-text { color: #a855f7; }
+        .card-bg { background: linear-gradient(145deg, #111111 0%, #080808 100%); }
+        .purple-glow { box-shadow: 0 0 20px rgba(168, 85, 247, 0.05); border: 1px solid rgba(168, 85, 247, 0.1); }
     </style>
 </head>
-<body x-data="app" class="bg-[#050505] text-white min-h-screen p-4 pb-10">
+<body x-data="app" class="bg-black text-white min-h-screen p-4 pb-12 font-sans">
 
-    <header class="max-w-md mx-auto flex justify-between items-center py-6">
+    <header class="max-w-md mx-auto flex justify-between items-center py-6 border-b border-white/5 mb-6">
         <div>
-            <h1 class="text-2xl font-black italic neon-text">QR FACTS</h1>
-            <p class="text-[9px] text-gray-500 tracking-[0.3em] uppercase">Verify and Claim</p>
+            <h1 class="text-xl font-black italic tracking-tighter neon-text">QR FACTS</h1>
+            <p class="text-[8px] text-gray-600 uppercase tracking-widest">Knowledge Market</p>
         </div>
         <template x-if="user.loggedIn">
-            <img :src="user.pfp" class="w-8 h-8 rounded-full border border-purple-500">
+            <div class="flex items-center gap-2">
+                <span class="text-[10px] text-gray-500 font-bold" x-text="'@' + user.username"></span>
+                <img :src="user.pfp" class="w-8 h-8 rounded-full border border-purple-500/30">
+            </div>
         </template>
     </header>
 
     <main class="max-w-md mx-auto space-y-4">
-        <div x-show="loading" class="text-center py-20 text-gray-600 animate-pulse text-sm">INITIALIZING DATA...</div>
+        <div x-show="loading" class="text-center py-20 text-gray-700 text-xs tracking-widest">FETCHING ON-CHAIN DATA...</div>
 
         <template x-for="bid in bids" :key="bid.url">
-            <div class="bg-[#111] rounded-2xl p-5 card-glow">
+            <div class="card-bg rounded-2xl p-5 purple-glow">
                 <div class="flex justify-between items-start mb-4">
                     <div class="flex-1 overflow-hidden">
-                        <h2 class="text-lg font-bold text-white truncate" x-text="bid.projectTitle"></h2>
-                        <p class="text-[10px] text-purple-400 font-medium uppercase tracking-wider" x-text="'By ' + bid.bidderName"></p>
+                        <h2 class="text-lg font-bold text-gray-100 truncate pr-2" x-text="bid.projectTitle"></h2>
+                        <div class="flex items-center gap-1.5 mt-1">
+                            <span class="text-[9px] px-1.5 py-0.5 bg-purple-500/10 text-purple-400 rounded border border-purple-500/20 font-bold" x-text="bid.bidderName"></span>
+                        </div>
                     </div>
-                    <div class="text-right pl-4">
+                    <div class="text-right">
                         <div class="text-white font-black text-sm" x-text="'$' + (bid.amount / 1000000).toLocaleString()"></div>
-                        <div class="text-[8px] text-gray-600 uppercase">USDC</div>
+                        <div class="text-[8px] text-gray-600 uppercase font-bold">Total Bid</div>
                     </div>
                 </div>
 
-                <a :href="bid.url" target="_blank" class="block bg-black/40 border border-white/5 rounded-lg p-2 mb-4 hover:bg-black/60 transition group">
+                <a :href="bid.url" target="_blank" class="block bg-white/5 border border-white/5 rounded-xl p-3 mb-5 hover:bg-white/10 transition group">
                     <div class="flex justify-between items-center">
-                        <span class="text-[10px] text-gray-500 truncate mr-4" x-text="bid.url"></span>
-                        <span class="text-[10px] text-purple-500 group-hover:underline">Visit ↗</span>
+                        <span class="text-[10px] text-gray-400 truncate mr-6" x-text="bid.url"></span>
+                        <svg class="w-3 h-3 text-purple-500 opacity-50 group-hover:opacity-100 transition" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
                     </div>
                 </a>
 
                 <div class="grid grid-cols-2 gap-3">
-                    <button @click="openReader(bid)" class="bg-white/5 hover:bg-white/10 text-white py-3 rounded-xl text-xs font-bold transition">
-                        <span x-show="!bid.hasRead">📖 Read Fact</span>
-                        <span x-show="bid.hasRead" class="text-purple-400">✓ Article Read</span>
+                    <button @click="openReader(bid)" class="bg-white/5 hover:bg-white/10 text-white py-3 rounded-xl text-xs font-black transition border border-white/5">
+                        <span x-show="!bid.hasRead">READ ARTICLE</span>
+                        <span x-show="bid.hasRead" class="text-purple-400 font-bold italic">✓ COMPLETED</span>
                     </button>
-                    <button :disabled="!bid.hasRead" :class="bid.hasRead ? 'bg-purple-600' : 'bg-white/5 text-gray-600'" class="py-3 rounded-xl text-xs font-bold transition">
-                        Claim $FACTS
+                    <button :disabled="!bid.hasRead" :class="bid.hasRead ? 'bg-purple-600 shadow-lg shadow-purple-900/20' : 'bg-white/5 text-gray-700'" class="py-3 rounded-xl text-xs font-black transition">
+                        CLAIM REWARD
                     </button>
                 </div>
             </div>
         </template>
     </main>
 
-    <div x-show="readerOpen" x-cloak class="fixed inset-0 bg-black/98 z-50 p-6 flex flex-col justify-center items-center backdrop-blur-xl">
+    <div x-show="readerOpen" x-cloak class="fixed inset-0 bg-black/95 z-50 p-8 flex flex-col justify-center items-center backdrop-blur-md">
         <div class="w-full max-w-sm">
-            <h2 class="text-2xl font-black mb-2" x-text="activeBid?.projectTitle"></h2>
-            <p class="text-xs text-purple-500 mb-8" x-text="'Facts provided by ' + activeBid?.bidderName"></p>
+            <div class="mb-8">
+                <h2 class="text-2xl font-black italic tracking-tighter leading-none" x-text="activeBid?.projectTitle"></h2>
+                <p class="text-[10px] text-purple-500 mt-2 font-bold uppercase tracking-widest" x-text="'Fact Sheet by ' + activeBid?.bidderName"></p>
+            </div>
             
-            <div class="bg-white/5 p-6 rounded-2xl border border-white/10 mb-8">
-                <p class="text-gray-300 text-sm leading-relaxed italic">
-                    "Verify the claims made by this project to earn your rewards. Knowledge is power."
+            <div class="bg-white/5 p-8 rounded-3xl border border-white/10 mb-8 relative">
+                <div class="absolute -top-3 -left-3 bg-purple-600 text-[10px] font-black px-3 py-1 rounded-full">FACT</div>
+                <p class="text-gray-400 text-sm leading-relaxed">
+                    This article is generated by the project bidder to verify the claims made about their product. Review carefully to earn your $FACTS reward.
                 </p>
             </div>
 
-            <button @click="readerOpen = false; activeBid.hasRead = true" :disabled="!canFinish" :class="canFinish ? 'bg-purple-600' : 'bg-white/10 text-gray-500'" class="w-full py-4 rounded-2xl font-bold transition-all">
-                <span x-text="canFinish ? 'I have read the facts' : 'Reading... ' + countdown + 's'"></span>
+            <button @click="readerOpen = false; activeBid.hasRead = true" :disabled="!canFinish" :class="canFinish ? 'bg-purple-600' : 'bg-white/10 text-gray-600'" class="w-full py-4 rounded-2xl font-black transition-all">
+                <span x-text="canFinish ? 'FINISH READING' : 'READING... ' + countdown + 's'"></span>
             </button>
+            <button @click="readerOpen = false" class="w-full mt-4 text-xs text-gray-500 font-bold">CLOSE</button>
         </div>
     </div>
 

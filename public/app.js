@@ -33,33 +33,40 @@ document.addEventListener('alpine:init', () => {
 
                 const rawBids = await contract.getAllBids();
 
-                this.bids = await Promise.all(rawBids.map(async (bid) => {
+                // Process each bid one by one to ensure bidder names are fetched
+                const processedBids = [];
+                for (let bid of rawBids) {
                     const creatorAddr = bid.contributions[0].contributor;
                     const url = bid.urlString;
 
-                    // 1. Get Bidder Name from Contract
                     let bidderName = "Anonymous";
                     try {
-                        bidderName = await contract.getBidderName(creatorAddr);
-                    } catch (e) { console.error("Name fetch failed"); }
+                        // Ensure address is formatted correctly for the call
+                        const name = await contract.getBidderName(ethers.getAddress(creatorAddr));
+                        if (name && name.trim() !== "") {
+                            bidderName = name;
+                        }
+                    } catch (e) { 
+                        console.error("Bidder name fetch failed for:", creatorAddr, e); 
+                    }
 
-                    return {
+                    processedBids.push({
                         url: url,
                         amount: Number(bid.totalAmount),
-                        bidderName: bidderName || "Anonymous",
+                        bidderName: bidderName,
                         bidderWallet: creatorAddr,
-                        projectTitle: "Loading...", // Set in next step
+                        projectTitle: "Loading Title...", 
                         hasRead: false,
                         claiming: false,
                         claimed: false
-                    };
-                }));
+                    });
+                }
 
-                // Sort by amount
+                this.bids = processedBids;
                 this.bids.sort((a, b) => b.amount - a.amount);
                 this.loading = false;
 
-                // 2. Fetch Website Titles (OpenGraph) in background
+                // Background: Fetch Titles
                 this.fetchProjectTitles();
 
             } catch (err) {
@@ -75,7 +82,7 @@ document.addEventListener('alpine:init', () => {
                     const data = await res.json();
                     bid.projectTitle = data.title;
                 } catch (e) {
-                    bid.projectTitle = "Project Spotlight";
+                    bid.projectTitle = "View Project";
                 }
             });
         },
