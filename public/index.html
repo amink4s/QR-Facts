@@ -40,7 +40,7 @@
 
                 <div class="grid grid-cols-2 gap-3">
                     <button @click="openReader(bid)" class="bg-white/5 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest border border-white/5">
-                        <span x-show="!bid.hasRead">Verify Facts</span>
+                        <span x-show="!bid.hasRead">Read</span>
                         <span x-show="bid.hasRead" class="text-purple-400">Checked</span>
                     </button>
                     <button :disabled="!bid.hasRead" class="py-3 rounded-xl text-[10px] font-black uppercase tracking-widest bg-white/5 text-gray-700">
