@@ -148,43 +148,84 @@
                         ], provider);
 
                         const rawBids = await contract.getAllBids();
-                        this.bids = rawBids.map(bid => ({
-                            url: bid.urlString,
-                            amount: Number(bid.totalAmount),
-                            bidderName: "...",
-                            bidderWallet: bid.contributions[0].contributor.toLowerCase(),
-                            projectTitle: "Loading...",
-                            hasRead: false
-                        }));
+                        // Support both named-return objects and positional arrays returned by some providers
+                        this.bids = rawBids.map(bid => {
+                            const totalAmount = bid.totalAmount ?? bid[0];
+                            const url = bid.urlString ?? bid[1] ?? '';
+                            const contributions = bid.contributions ?? bid[2] ?? [];
+                            const firstContributor = contributions[0]
+                                ? (contributions[0].contributor ?? contributions[0][0] ?? '')
+                                : '';
+
+                            return {
+                                url: url,
+                                amount: Number(totalAmount ?? 0),
+                                bidderName: "...",
+                                bidderWallet: (firstContributor || '').toLowerCase(),
+                                projectTitle: "Loading...",
+                                hasRead: false
+                            };
+                        });
+
                         this.bids.sort((a,b) => b.amount - a.amount);
                         this.loading = false;
-                        this.resolveMetadata(contract);
-                    } catch (e) { this.loading = false; }
+                        await this.resolveMetadata(contract);
+                    } catch (e) { console.warn('loadBids error', e); this.loading = false; }
                 },
+
 
                 async resolveMetadata(contract) {
                     for (let bid of this.bids) {
-                        // User Resolution Logic
-                        if (this.user.wallet && bid.bidderWallet === this.user.wallet) {
-                            bid.bidderName = "@" + this.user.username; // Use context name for self
-                        } else {
-                            // Resolve others via Neynar Proxy
-                            fetch(`/api/lookup-name?address=${bid.bidderWallet}`)
-                                .then(r => r.json())
-                                .then(async data => {
+                        try {
+                            // If this is the current user, use context username
+                            if (this.user.wallet && bid.bidderWallet && bid.bidderWallet === this.user.wallet) {
+                                bid.bidderName = "@" + this.user.username;
+                                this.bids = [...this.bids];
+                                continue;
+                            }
+
+                            // Try on-chain name first
+                            let onChain = '';
+                            try {
+                                const addr = ethers.getAddress(bid.bidderWallet);
+                                onChain = await contract.getBidderName(addr);
+                            } catch (e) {
+                                try { onChain = await contract.getBidderName(bid.bidderWallet); } catch (e2) { onChain = ''; }
+                            }
+
+                            if (onChain && onChain.trim() !== '') {
+                                bid.bidderName = onChain;
+                                this.bids = [...this.bids];
+                            } else {
+                                // Fallback to Neynar lookup (our proxy)
+                                try {
+                                    const res = await fetch(`/api/lookup-name?address=${bid.bidderWallet}`);
+                                    const data = await res.json();
                                     if (data.username) {
                                         bid.bidderName = "@" + data.username;
+                                        this.bids = [...this.bids];
                                     } else {
-                                        const onChain = await contract.getBidderName(bid.bidderWallet);
-                                        bid.bidderName = (onChain && onChain.trim() !== "") ? onChain : bid.bidderWallet.slice(0,6);
+                                        bid.bidderName = bid.bidderWallet ? bid.bidderWallet.slice(0,6) : 'unknown';
+                                        this.bids = [...this.bids];
                                     }
-                                });
+                                } catch (e) {
+                                    bid.bidderName = bid.bidderWallet ? bid.bidderWallet.slice(0,6) : 'unknown';
+                                    this.bids = [...this.bids];
+                                }
+                            }
+                        } catch (e) {
+                            console.warn('resolveMetadata error for', bid, e);
                         }
+
                         // Title Resolution
-                        fetch(`/api/get-title?url=${encodeURIComponent(bid.url)}`)
-                            .then(r => r.json()).then(d => { bid.projectTitle = d.title; });
+                        try {
+                            const r = await fetch(`/api/get-title?url=${encodeURIComponent(bid.url)}`);
+                            const d = await r.json();
+                            if (d.title) { bid.projectTitle = d.title; this.bids = [...this.bids]; }
+                        } catch (e) { /* ignore title fetch errors */ }
                     }
                 },
+
 
                 async openReader(bid) {
                     this.activeBid = bid;
