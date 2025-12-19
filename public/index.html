@@ -31,6 +31,7 @@
             <div class="flex items-center gap-2">
                 <span class="text-[10px] text-gray-400" x-text="'@' + user.username"></span>
                 <img :src="user.pfp" class="w-8 h-8 rounded-full border border-purple-500/30">
+                <button x-show="user.loggedIn" @click="showDebug = !showDebug" class="ml-3 text-[10px] px-2 py-1 border rounded bg-white/5">Debug</button>
             </div>
         </template>
     </header>
@@ -44,6 +45,13 @@
                     <div class="flex-1 overflow-hidden">
                         <h2 class="text-lg font-bold truncate text-gray-100" x-text="bid.projectTitle"></h2>
                         <p class="text-[10px] font-black text-purple-400 uppercase" x-text="bid.bidderName"></p>
+                        <template x-if="showDebug">
+                            <div class="text-[10px] text-gray-400 mt-2">
+                                <div>bidderWallet: <span class="font-mono" x-text="bid.bidderWallet || 'n/a'"></span></div>
+                                <div>bidderFid: <span class="font-mono" x-text="bid.bidderFid || 'n/a'"></span></div>
+                                <div>canEdit: <span x-text="bid.canEdit ? 'true' : 'false'"></span></div>
+                            </div>
+                        </template>
                     </div>
                     <div class="bg-purple-500/10 px-3 py-1 rounded-lg text-right">
                         <div class="text-white font-black text-sm" x-text="'$' + (bid.amount / 1000000).toLocaleString()"></div>
@@ -105,6 +113,7 @@
                 contractAddress: '0x6A0FB6dfDA897dAe3c69D06d5D6B5d6b251281da',
                 readerOpen: false,
                 editorOpen: false,
+                showDebug: false,
                 activeBid: null,
                 activeFacts: '',
                 editableContent: '',
@@ -269,6 +278,7 @@
                                 const ownerRes = await fetch(`/api/lookup-owner?address=${bid.bidderWallet}`);
                                 if (ownerRes.ok) {
                                     const owner = await ownerRes.json();
+                                    console.debug('resolveMetadata: lookup-owner result', { bidderWallet: bid.bidderWallet, owner });
                                     if (owner?.fid) {
                                         bid.bidderFid = owner.fid;
                                         // If we don't yet have a better name, prefer the owner's username
@@ -286,8 +296,11 @@
 
                                         this.bids = [...this.bids];
                                     }
+                                } else {
+                                    console.debug('resolveMetadata: lookup-owner non-ok', { bidderWallet: bid.bidderWallet, status: ownerRes.status });
                                 }
-                            } catch (e) { /* ignore owner resolution errors */ }
+                            } catch (e) { console.debug('resolveMetadata: lookup-owner error', e); }
+
                         } catch (e) {
                             console.warn('resolveMetadata error for', bid, e);
                         }
