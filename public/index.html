@@ -181,6 +181,7 @@
                         ], provider);
 
                         const rawBids = await contract.getAllBids();
+                        console.debug('loadBids: fetched', rawBids.length, 'bids from contract');
                         // Support both named-return objects and positional arrays returned by some providers
                         this.bids = rawBids.map(bid => {
                             const totalAmount = bid.totalAmount ?? bid[0];
@@ -210,6 +211,7 @@
 
                 async resolveMetadata(contract) {
                     for (let bid of this.bids) {
+                        console.debug('resolveMetadata: resolving', bid.bidderWallet, bid.url);
                         try {
                             // If this is the current user, use context username
                             if (this.user.wallet && bid.bidderWallet && bid.bidderWallet === this.user.wallet) {
@@ -269,7 +271,6 @@
                                     }
                                 }
                             } catch (e) { /* ignore owner resolution errors */ }
-                            }
                         } catch (e) {
                             console.warn('resolveMetadata error for', bid, e);
                         }
