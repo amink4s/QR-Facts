@@ -123,11 +123,37 @@
                                 loggedIn: true
                             };
                             // Sync with Neon DB
-                            fetch('/api/sync-user', {
-                                method: 'POST',
-                                headers: {'Content-Type': 'application/json'},
-                                body: JSON.stringify(this.user)
-                            });
+                            try {
+                                const r = await fetch('/api/sync-user', {
+                                    method: 'POST',
+                                    headers: {'Content-Type': 'application/json'},
+                                    body: JSON.stringify(this.user)
+                                });
+                                if (!r.ok) console.warn('sync-user failed', await r.json());
+                            } catch (e) { console.error('sync-user request failed', e); }
+                        } else {
+                            // Try to trigger QuickAuth if available
+                            try {
+                                if (sdk?.actions?.authorize) {
+                                    await sdk.actions.authorize();
+                                    const newCtx = await sdk.context;
+                                    if (newCtx?.user) {
+                                        this.user = {
+                                            username: newCtx.user.username,
+                                            pfp: newCtx.user.pfpUrl,
+                                            wallet: newCtx.user.custodyAddress.toLowerCase(),
+                                            fid: newCtx.user.fid,
+                                            loggedIn: true
+                                        };
+                                        const r = await fetch('/api/sync-user', {
+                                            method: 'POST',
+                                            headers: {'Content-Type': 'application/json'},
+                                            body: JSON.stringify(this.user)
+                                        });
+                                        if (!r.ok) console.warn('sync-user failed', await r.json());
+                                    }
+                                }
+                            } catch (e) { console.warn('QuickAuth authorize failed or not supported', e); }
                         }
                     } catch (e) { console.error("Farcaster SDK Error", e); }
                     
@@ -265,13 +291,22 @@
                 },
 
                 async saveFacts() {
-                    const res = await fetch('/api/save-facts', {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({ url: this.activeBid.url, content: this.editableContent, wallet: this.user.wallet })
-                    });
-                    if (res.ok) this.editorOpen = false;
+                    if (!this.user.loggedIn) return alert('Please log in via Farcaster');
+                    try {
+                        const res = await fetch('/api/save-facts', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({ url: this.activeBid.url, content: this.editableContent, wallet: this.user.wallet })
+                        });
+                        const data = await res.json();
+                        if (!res.ok) {
+                            alert(data.error || 'Failed to save — you may not be the original bidder.');
+                            return;
+                        }
+                        this.editorOpen = false;
+                    } catch (e) { alert('Save failed: ' + e.message); }
                 },
+
 
                 async claimReward(bid) {
                     if (!this.user.loggedIn) return alert('Please log in via Farcaster');

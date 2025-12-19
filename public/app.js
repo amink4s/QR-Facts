@@ -21,11 +21,40 @@ document.addEventListener('alpine:init', () => {
                             loggedIn: true
                         };
                         // 1. Sync User to Neon DB
-                        fetch('/api/sync-user', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(this.user)
-                        });
+                        try {
+                            const r = await fetch('/api/sync-user', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify(this.user)
+                            });
+                            if (!r.ok) console.warn('sync-user failed', await r.json());
+                        } catch (e) { console.error('sync-user request failed', e); }
+                    } else {
+                        // No context user: try QuickAuth authorize (if available) to prompt the user and obtain credentials
+                        try {
+                            if (window.fc_sdk?.actions?.authorize) {
+                                const auth = await window.fc_sdk.actions.authorize();
+                                // Re-read context after authorization
+                                const newCtx = await window.fc_sdk.context;
+                                if (newCtx?.user) {
+                                    this.user = {
+                                        username: newCtx.user.username,
+                                        pfp: newCtx.user.pfpUrl,
+                                        wallet: newCtx.user.custodyAddress.toLowerCase(),
+                                        fid: newCtx.user.fid,
+                                        loggedIn: true
+                                    };
+                                    try {
+                                        const r = await fetch('/api/sync-user', {
+                                            method: 'POST',
+                                            headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify(this.user)
+                                        });
+                                        if (!r.ok) console.warn('sync-user failed', await r.json());
+                                    } catch (e) { console.error('sync-user request failed', e); }
+                                }
+                            }
+                        } catch (e) { console.warn('QuickAuth authorize failed or not supported', e); }
                     }
 
                     // 2. IMPORTANT: HIDE SPLASH SCREEN
