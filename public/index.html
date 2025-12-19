@@ -61,7 +61,7 @@
                     </button>
                 </div>
 
-                <template x-if="user.wallet && bid.bidderWallet && user.wallet.toLowerCase() === bid.bidderWallet.toLowerCase()">
+                <template x-if="(user.wallet && bid.bidderWallet && user.wallet.toLowerCase() === bid.bidderWallet.toLowerCase()) || (user.fid && bid.bidderFid && user.fid === bid.bidderFid)">
                     <button @click="openEditor(bid)" class="w-full mt-3 py-2.5 bg-purple-500/5 border border-purple-500/20 text-purple-400 text-[9px] font-black uppercase rounded-xl">
                         ✍️ EDIT YOUR PROJECT FACTS
                     </button>
@@ -248,9 +248,27 @@
                                         this.bids = [...this.bids];
                                     }
                                 } catch (e) {
+                                    // If Neynar lookup fails, continue — we'll still try to resolve owner below
                                     bid.bidderName = bid.bidderWallet ? bid.bidderWallet.slice(0,6) : 'unknown';
                                     this.bids = [...this.bids];
                                 }
+                            }
+
+                            // Try resolving the owner in our local users DB (to get fid and enable editing by FID)
+                            try {
+                                const ownerRes = await fetch(`/api/lookup-owner?address=${bid.bidderWallet}`);
+                                if (ownerRes.ok) {
+                                    const owner = await ownerRes.json();
+                                    if (owner?.fid) {
+                                        bid.bidderFid = owner.fid;
+                                        // If we don't yet have a better name, prefer the owner's username
+                                        if (!bid.bidderName || bid.bidderName === (bid.bidderWallet ? bid.bidderWallet.slice(0,6) : 'unknown')) {
+                                            if (owner.username) { bid.bidderName = '@' + owner.username; }
+                                        }
+                                        this.bids = [...this.bids];
+                                    }
+                                }
+                            } catch (e) { /* ignore owner resolution errors */ }
                             }
                         } catch (e) {
                             console.warn('resolveMetadata error for', bid, e);
@@ -307,7 +325,7 @@
                         const res = await fetch('/api/save-facts', {
                             method: 'POST',
                             headers: {'Content-Type': 'application/json'},
-                            body: JSON.stringify({ url: this.activeBid.url, content: this.editableContent, wallet: this.user.wallet })
+                            body: JSON.stringify({ url: this.activeBid.url, content: this.editableContent, wallet: this.user.wallet, fid: this.user.fid })
                         });
                         const data = await res.json();
                         if (!res.ok) {

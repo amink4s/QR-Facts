@@ -2,14 +2,25 @@ import { neon } from '@neondatabase/serverless';
 
 export default async function handler(req, res) {
     if (req.method !== 'POST') return res.status(405).send('Method Not Allowed');
-    const { url, content, wallet } = req.body;
+    let { url, content, wallet, fid } = req.body;
 
     if (!process.env.DATABASE_URL) return res.status(500).json({ error: 'DATABASE_URL not configured' });
-    if (!wallet) return res.status(400).json({ error: 'wallet is required' });
 
     try {
         const sql = neon(process.env.DATABASE_URL);
-        const w = wallet.toLowerCase();
+        let w = wallet ? wallet.toLowerCase() : null;
+
+        // If no wallet but an fid is provided, try to resolve wallet from users table
+        if (!w && fid) {
+            const owner = await sql`SELECT wallet_address FROM users WHERE fid = ${fid} LIMIT 1`;
+            if (owner?.length && owner[0].wallet_address) {
+                w = owner[0].wallet_address.toLowerCase();
+            } else {
+                return res.status(400).json({ error: 'No wallet on file for provided fid' });
+            }
+        }
+
+        if (!w) return res.status(400).json({ error: 'wallet or fid required' });
 
         // Attempt to insert or update only if the caller is the owner (bidder_wallet)
         const result = await sql`

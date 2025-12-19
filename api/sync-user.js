@@ -10,13 +10,12 @@ export default async function handler(req, res) {
 
     try {
         await pool.query(`
-            INSERT INTO users (fid, wallet_address, username, pfp_url, last_seen)
+            INSERT INTO users (fid, wallet_address, username, pfp_url, updated_at)
             VALUES ($1, $2, $3, $4, NOW())
             ON CONFLICT (fid) DO UPDATE SET
                 wallet_address = EXCLUDED.wallet_address,
                 username = EXCLUDED.username,
                 pfp_url = EXCLUDED.pfp_url,
-                last_seen = NOW(),
                 updated_at = NOW()
         `, [fid, wallet?.toLowerCase(), username, pfp]);
 
