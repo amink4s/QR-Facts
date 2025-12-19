@@ -11,12 +11,15 @@ document.addEventListener('alpine:init', () => {
                 if (window.fc_sdk) {
                     clearInterval(checkSDK);
                     const context = await window.fc_sdk.context;
-                    
+
                     if (context?.user) {
+                        const custody = context.user.custodyAddress;
+                        const wallet = custody ? custody.toLowerCase() : null;
+                        console.debug('fc context user:', { username: context.user.username, hasCustody: !!custody, fid: context.user.fid });
                         this.user = {
-                            username: context.user.username,
-                            pfp: context.user.pfpUrl,
-                            wallet: context.user.custodyAddress.toLowerCase(),
+                            username: context.user.username || 'anonymous',
+                            pfp: context.user.pfpUrl || '',
+                            wallet: wallet,
                             fid: context.user.fid,
                             loggedIn: true
                         };
@@ -37,10 +40,12 @@ document.addEventListener('alpine:init', () => {
                                 // Re-read context after authorization
                                 const newCtx = await window.fc_sdk.context;
                                 if (newCtx?.user) {
+                                    const custody = newCtx.user.custodyAddress;
+                                    const wallet = custody ? custody.toLowerCase() : null;
                                     this.user = {
-                                        username: newCtx.user.username,
-                                        pfp: newCtx.user.pfpUrl,
-                                        wallet: newCtx.user.custodyAddress.toLowerCase(),
+                                        username: newCtx.user.username || 'anonymous',
+                                        pfp: newCtx.user.pfpUrl || '',
+                                        wallet: wallet,
                                         fid: newCtx.user.fid,
                                         loggedIn: true
                                     };

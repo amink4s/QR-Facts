@@ -5,17 +5,19 @@ export default async function handler(req, res) {
     const { url, content, wallet } = req.body;
 
     if (!process.env.DATABASE_URL) return res.status(500).json({ error: 'DATABASE_URL not configured' });
+    if (!wallet) return res.status(400).json({ error: 'wallet is required' });
 
     try {
         const sql = neon(process.env.DATABASE_URL);
+        const w = wallet.toLowerCase();
 
         // Attempt to insert or update only if the caller is the owner (bidder_wallet)
         const result = await sql`
             INSERT INTO project_facts (url_hash, urlString, bidder_wallet, content, updated_at)
-            VALUES (encode(digest(${url}, 'sha256'), 'hex'), ${url}, ${wallet.toLowerCase()}, ${content}, NOW())
+            VALUES (encode(digest(${url}, 'sha256'), 'hex'), ${url}, ${w}, ${content}, NOW())
             ON CONFLICT (url_hash) 
             DO UPDATE SET content = ${content}, updated_at = NOW()
-            WHERE project_facts.bidder_wallet = ${wallet.toLowerCase()}
+            WHERE project_facts.bidder_wallet = ${w}
             RETURNING *;
         `;
 
