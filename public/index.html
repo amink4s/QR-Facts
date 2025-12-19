@@ -61,7 +61,7 @@
                     </button>
                 </div>
 
-                <template x-if="(user.wallet && bid.bidderWallet && user.wallet.toLowerCase() === bid.bidderWallet.toLowerCase()) || (user.fid && bid.bidderFid && user.fid === bid.bidderFid)">
+                <template x-if="(user.wallet && bid.bidderWallet && user.wallet.toLowerCase() === bid.bidderWallet.toLowerCase()) || bid.canEdit">
                     <button @click="openEditor(bid)" class="w-full mt-3 py-2.5 bg-purple-500/5 border border-purple-500/20 text-purple-400 text-[9px] font-black uppercase rounded-xl">
                         ✍️ EDIT YOUR PROJECT FACTS
                     </button>
@@ -198,7 +198,9 @@
                                 bidderWallet: (firstContributor || '').toLowerCase(),
                                 projectTitle: "Loading...",
                                 hasRead: false,
-                                hasFacts: false
+                                hasFacts: false,
+                                bidderFid: null,
+                                canEdit: false
                             };
                         });
 
@@ -219,6 +221,12 @@
                                 this.bids = [...this.bids];
                                 continue;
                             }
+
+                            // Pre-check wallet match for editing permission
+                            try {
+                                const walletMatch = this.user.wallet && bid.bidderWallet && (this.user.wallet.toLowerCase() === bid.bidderWallet.toLowerCase());
+                                if (walletMatch) { bid.canEdit = true; this.bids = [...this.bids]; console.debug('resolveMetadata: walletMatch', { userWallet: this.user.wallet, bidderWallet: bid.bidderWallet }); }
+                            } catch (e) {}
 
                             // Try on-chain name first
                             let onChain = '';
@@ -267,6 +275,15 @@
                                         if (!bid.bidderName || bid.bidderName === (bid.bidderWallet ? bid.bidderWallet.slice(0,6) : 'unknown')) {
                                             if (owner.username) { bid.bidderName = '@' + owner.username; }
                                         }
+
+                                        // Determine edit permission: either wallet matches OR fid matches
+                                        try {
+                                            const walletMatch = this.user.wallet && bid.bidderWallet && (this.user.wallet.toLowerCase() === bid.bidderWallet.toLowerCase());
+                                            const fidMatch = this.user.fid && bid.bidderFid && (this.user.fid === bid.bidderFid);
+                                            bid.canEdit = walletMatch || fidMatch;
+                                            if (bid.canEdit) console.debug('resolveMetadata: bid editable by user', { walletMatch, fidMatch, userWallet: this.user.wallet, bidderWallet: bid.bidderWallet, userFid: this.user.fid, bidderFid: bid.bidderFid });
+                                        } catch (e) { bid.canEdit = false; }
+
                                         this.bids = [...this.bids];
                                     }
                                 }
@@ -312,12 +329,32 @@
                 },
 
                 async openEditor(bid) {
+                    console.debug('openEditor requested', { bid, user: { wallet: this.user.wallet, fid: this.user.fid } });
                     this.activeBid = bid;
                     this.editorOpen = true;
                     this.editableContent = "Loading...";
                     const res = await fetch(`/api/get-facts?url=${encodeURIComponent(bid.url)}`);
                     const data = await res.json();
                     this.editableContent = (data.content.includes("not provided")) ? "" : data.content;
+                },
+
+                async saveFacts() {
+                    console.debug('saveFacts requested', { url: this.activeBid?.url, user: { wallet: this.user.wallet, fid: this.user.fid } });
+                    if (!this.user.loggedIn) return alert('Please log in via Farcaster');
+                    try {
+                        const res = await fetch('/api/save-facts', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({ url: this.activeBid.url, content: this.editableContent, wallet: this.user.wallet, fid: this.user.fid })
+                        });
+                        const data = await res.json();
+                        if (!res.ok) {
+                            console.warn('save-facts failed', data);
+                            alert(data.error || 'Failed to save — you may not be the original bidder.');
+                            return;
+                        }
+                        this.editorOpen = false;
+                    } catch (e) { alert('Save failed: ' + e.message); }
                 },
 
                 async saveFacts() {
