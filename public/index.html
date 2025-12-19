@@ -116,13 +116,15 @@
                         const context = await sdk.context;
                         if (context?.user) {
                             const custody = context.user.custodyAddress;
-                            const wallet = custody ? custody.toLowerCase() : null;
+                        const wallet = custody ? custody.toLowerCase() : null;
                         console.debug('fc context user:', { username: context.user.username, hasCustody: !!custody, fid: context.user.fid });
-                                pfp: context.user.pfpUrl || '',
-                                wallet: wallet,
-                                fid: context.user.fid,
-                                loggedIn: true
-                            };
+                        this.user = {
+                            username: context.user.username || 'anonymous',
+                            pfp: context.user.pfpUrl || '',
+                            wallet: wallet,
+                            fid: context.user.fid,
+                            loggedIn: true
+                        };
 
                             // Sync with Neon DB
                             try {
