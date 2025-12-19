@@ -299,12 +299,26 @@
                             if (d.title) { bid.projectTitle = d.title; this.bids = [...this.bids]; }
                         } catch (e) { /* ignore title fetch errors */ }
 
-                        // Check whether facts have been provided for this URL
+                        // Check whether facts have been provided for this URL and fetch owner info
                         try {
                             const rf = await fetch(`/api/get-facts?url=${encodeURIComponent(bid.url)}`);
                             const fd = await rf.json();
                             const content = fd.content || '';
                             bid.hasFacts = !(content.toLowerCase().includes('not provided') || content.trim().length < 10);
+
+                            // If the facts row records a bidder_wallet, use it to resolve ownership (fid)
+                            if (fd.bidder_wallet) {
+                                bid.bidderFid = fd.ownerFid || bid.bidderFid || null;
+                                console.debug('resolveMetadata: got facts owner for', bid.url, { bidder_wallet: fd.bidder_wallet, ownerFid: fd.ownerFid, ownerUsername: fd.ownerUsername });
+
+                                try {
+                                    const fidMatch = this.user.fid && bid.bidderFid && (this.user.fid === bid.bidderFid);
+                                    const walletMatch = this.user.wallet && bid.bidderWallet && (this.user.wallet.toLowerCase() === bid.bidderWallet.toLowerCase());
+                                    bid.canEdit = !!(fidMatch || walletMatch || bid.canEdit);
+                                    if (bid.canEdit) console.debug('resolveMetadata: canEdit set via facts owner', { fidMatch, walletMatch, userFid: this.user.fid, bidderFid: bid.bidderFid });
+                                } catch (e) { /* ignore */ }
+                            }
+
                             this.bids = [...this.bids];
                         } catch (e) {
                             bid.hasFacts = false; this.bids = [...this.bids];
