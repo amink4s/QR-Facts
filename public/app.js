@@ -101,7 +101,10 @@ document.addEventListener('alpine:init', () => {
                     bidderWallet: bid.contributions[0].contributor.toLowerCase(),
                     projectTitle: "Loading...",
                     bidderName: bid.contributions[0].contributor.slice(0, 6),
-                    hasRead: false
+                    hasRead: false,
+                    hasClaimed: false,
+                    claimedAmount: null,
+                    claimTx: null
                 }));
                 
                 this.bids.sort((a, b) => b.amount - a.amount);
@@ -114,14 +117,23 @@ document.addEventListener('alpine:init', () => {
 
         async claim(bid) {
             if (!this.user.loggedIn) return alert("Please log in via Farcaster");
+            if (!bid.hasRead) return alert('Please review the facts before claiming.');
+            if (!bid.hasFacts) return alert('No facts to claim for this project.');
             try {
                 const res = await fetch('/api/claims', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ wallet: this.user.wallet, url: bid.url })
+                    body: JSON.stringify({ wallet: this.user.wallet, fid: this.user.fid, url: bid.url })
                 });
                 const data = await res.json();
-                alert(data.message || data.error || (res.ok ? 'Claim successful' : 'Claim failed'));
+                if (res.ok) {
+                    bid.claimedAmount = data.amount || 250000;
+                    bid.claimTx = data.txHash || null;
+                    bid.hasClaimed = true;
+                    alert(data.message ? (data.message + (data.txHash ? ' Tx: ' + data.txHash : '')) : 'Claim successful');
+                } else {
+                    alert(data.error || 'Claim failed');
+                }
             } catch (e) { 
                 alert('Claim failed: ' + e.message); 
             }

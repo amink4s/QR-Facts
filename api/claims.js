@@ -61,11 +61,16 @@ export default async function handler(req, res) {
         
         const tx = await token.transfer(userWallet, parseUnits(String(amount), 18));
         await tx.wait();
+        const txHash = tx?.hash || null;
 
-        // 4. Log Claim (include fid and url for audit)
-        await sql`INSERT INTO facts_claims (wallet_address, fid, url_string, amount) VALUES (${userWallet}, ${resolvedFid || null}, ${url}, ${amount})`;
+        // Ensure tx_hash column exists (safe migration path) then log claim (include fid and url for audit)
+        try {
+            await sql`ALTER TABLE facts_claims ADD COLUMN IF NOT EXISTS tx_hash TEXT`;
+        } catch (e) { /* ignore alter errors */ }
 
-        return res.status(200).json({ message: `Success! Sent ${amount} $FACTS` });
+        await sql`INSERT INTO facts_claims (wallet_address, fid, url_string, amount, tx_hash) VALUES (${userWallet}, ${resolvedFid || null}, ${url}, ${amount}, ${txHash})`;
+
+        return res.status(200).json({ message: `Success! Sent ${amount} $FACTS`, amount, txHash });
     } catch (e) {
         console.error('claims error', e);
         return res.status(500).json({ error: e.message });
