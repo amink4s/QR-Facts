@@ -1,7 +1,29 @@
 {
   "functions": {
-    "api/**/*.js": {
+    "api/index.js": {
       "memory": 1024
+    },
+    "api/claims.js": {
+      "memory": 512
+    },
+    "api/check-claims.js": {
+      "memory": 512
+    },
+    "api/submit-fact.js": {
+      "memory": 512
+    },
+    "api/save-facts.js": {
+      "memory": 512
     }
-  }
+  },
+  "rewrites": [
+    { "source": "/api/lookup-owner", "destination": "/api/index.js?action=lookup-owner" },
+    { "source": "/api/lookup-names", "destination": "/api/index.js?action=lookup-names" },
+    { "source": "/api/cache-bidder-data", "destination": "/api/index.js?action=cache-bidder-data" },
+    { "source": "/api/get-title", "destination": "/api/index.js?action=get-title" },
+    { "source": "/api/get-facts", "destination": "/api/index.js?action=get-facts" },
+    { "source": "/api/sync-user", "destination": "/api/index.js?action=sync-user" },
+    { "source": "/api/user", "destination": "/api/index.js?action=user" },
+    { "source": "/api/facts", "destination": "/api/index.js?action=facts" }
+  ]
 }
