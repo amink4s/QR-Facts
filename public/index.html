@@ -210,6 +210,13 @@
                                 else if (Array.isArray(bid[2]) && bid[2][0]) bidderWallet = (bid[2][0]?.contributor ?? bid[2][0]?.[0] ?? '') || '';
                             }
 
+                            // If contract returns positional tuple where index 2 is the wallet, prefer it
+                            try {
+                                if (!bidderWallet && bid[2] && typeof bid[2] === 'string') {
+                                    bidderWallet = bid[2];
+                                }
+                            } catch (e) {}
+
                             // Ensure lowercase wallet
                             bidderWallet = (bidderWallet || '').toLowerCase();
 
@@ -224,16 +231,17 @@
                             }
 
                             const truncated = bidderWallet ? bidderWallet.slice(0,6) : '...';
+                            const isCurrentUser = this.user?.wallet && bidderWallet && (this.user.wallet.toLowerCase() === bidderWallet.toLowerCase());
                             return {
                                 url: url || '',
                                 amount: Number(totalAmount ?? 0),
-                                bidderName: truncated,
+                                bidderName: isCurrentUser ? ('@' + this.user.username) : truncated,
                                 bidderWallet: bidderWallet,
                                 projectTitle: "Loading...",
                                 hasRead: false,
                                 hasFacts: false,
-                                bidderFid: null,
-                                canEdit: false
+                                bidderFid: isCurrentUser ? this.user.fid : null,
+                                canEdit: !!isCurrentUser
                             };
                         });
 
