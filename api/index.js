@@ -1,5 +1,7 @@
 import { Pool } from '@neondatabase/serverless';
 import { neon } from '@neondatabase/serverless';
+import { createPublicClient, http } from 'viem';
+import { base } from 'viem/chains';
 
 export default async function handler(req, res) {
     const { action } = req.query;
@@ -272,7 +274,44 @@ async function handleSaveFacts(req, res) {
             if (owner?.length && owner[0].wallet_address) {
                 w = owner[0].wallet_address.toLowerCase();
             } else {
-                return res.status(400).json({ error: 'No wallet on file for provided fid' });
+                // Try to find the bidder wallet by scanning on-chain bids for this URL
+                try {
+                    const publicClient = createPublicClient({ chain: base, transport: http(process.env.RPC_URL || 'https://mainnet.base.org') });
+                    const abi = [
+                        "function getAllBids() view returns (tuple(uint256 totalAmount, string urlString, tuple(address contributor, uint256 amount, uint256 timestamp)[] contributions)[])"
+                    ];
+                    const rawBids = await publicClient.readContract({ address: '0x6A0FB6dfDA897dAe3c69D06d5D6B5d6b251281da', abi, functionName: 'getAllBids' });
+                    const found = (rawBids || []).find(b => ( (b.urlString ?? b[1] ?? '') || '').toLowerCase() === (url || '').toLowerCase());
+                    if (found) {
+                        let candidate = '';
+                        if (Array.isArray(found.contributions) && found.contributions.length > 0) {
+                            const c0 = found.contributions[0];
+                            candidate = (c0?.contributor ?? c0?.[0] ?? '') || '';
+                        } else if (found[2]) {
+                            if (typeof found[2] === 'string') candidate = found[2];
+                            else if (Array.isArray(found[2]) && found[2][0]) candidate = (found[2][0]?.contributor ?? found[2][0]?.[0] ?? '') || '';
+                        }
+                        candidate = (candidate || '').toLowerCase();
+                        if (candidate) {
+                            // Try Neynar to map address -> fid
+                            try {
+                                const neynarUrl = `https://api.neynar.com/v2/farcaster/user/bulk-by-address?addresses=${encodeURIComponent(candidate)}`;
+                                const resp = await fetch(neynarUrl, { method: 'GET', headers: { 'x-api-key': process.env.NEYNAR_API_KEY } });
+                                const nd = await resp.json();
+                                const key = Object.keys(nd).find(k => k.toLowerCase() === candidate);
+                                const userObj = key ? nd[key]?.[0] : null;
+                                const neynarFid = userObj?.fid || userObj?.farcasterId || userObj?.id || null;
+                                if (neynarFid && String(neynarFid) === String(fid)) {
+                                    w = candidate;
+                                }
+                            } catch (e) { console.debug('neynar reverse lookup failed', e); }
+                        }
+                    }
+                } catch (e) { console.debug('on-chain lookup for bidder wallet failed', e); }
+
+                if (!w) {
+                    return res.status(400).json({ error: 'No wallet on file for provided fid' });
+                }
             }
         }
 
