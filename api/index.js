@@ -208,9 +208,33 @@ async function handleSyncUser(req, res) {
         if (!process.env.DATABASE_URL) return res.status(500).json({ error: 'DATABASE_URL not configured' });
         
         const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-        const { fid, wallet, username, pfp, score } = req.body;
+        let { fid, wallet, username, pfp, score } = req.body;
 
         if (!fid) return res.status(400).json({ error: 'fid is required' });
+
+        // If wallet not provided, fetch from Neynar using the fid (primary address)
+        if (!wallet) {
+            try {
+                const neynarUrl = `https://api.neynar.com/v2/farcaster/user/bulk?fids=${encodeURIComponent(String(fid))}`;
+                const resp = await fetch(neynarUrl, { method: 'GET', headers: { 'x-api-key': process.env.NEYNAR_API_KEY } });
+                const nd = await resp.json();
+
+                // Try multiple shapes: { users: [...] } or array or object keyed by fid
+                let userObj = null;
+                if (Array.isArray(nd?.users) && nd.users.length > 0) userObj = nd.users[0];
+                else if (Array.isArray(nd) && nd.length > 0) userObj = nd[0];
+                else if (nd[String(fid)]) userObj = nd[String(fid)];
+                else if (nd.users && nd.users[String(fid)]) userObj = nd.users[String(fid)];
+
+                if (userObj) {
+                    if (userObj?.verified_addresses?.primary?.eth_address) wallet = userObj.verified_addresses.primary.eth_address;
+                    else if (userObj?.verified_addresses?.eth_addresses?.[0]) wallet = userObj.verified_addresses.eth_addresses[0];
+                    if (wallet) wallet = String(wallet).toLowerCase();
+                }
+            } catch (e) {
+                console.debug('sync-user: failed to fetch wallet from Neynar', e?.message || e);
+            }
+        }
 
         await pool.query(`
             INSERT INTO users (fid, wallet_address, username, pfp_url, neynar_score, last_score_update)
@@ -222,9 +246,9 @@ async function handleSyncUser(req, res) {
                 neynar_score = EXCLUDED.neynar_score,
                 last_score_update = NOW(),
                 updated_at = NOW()
-        `, [fid, wallet?.toLowerCase() || null, username, pfp, score]);
+        `, [fid, wallet || null, username, pfp, score]);
 
-        res.status(200).json({ success: true });
+        res.status(200).json({ success: true, wallet: wallet || null });
     } catch (e) {
         console.error('sync-user error:', e.message);
         res.status(500).json({ error: e.message });
