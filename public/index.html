@@ -135,15 +135,12 @@
                             loggedIn: true
                         };
 
-                            // Sync with Neon DB
-                            try {
-                                const r = await fetch('/api/sync-user', {
-                                    method: 'POST',
-                                    headers: {'Content-Type': 'application/json'},
-                                    body: JSON.stringify(this.user)
-                                });
-                                if (!r.ok) console.warn('sync-user failed', await r.json());
-                            } catch (e) { console.error('sync-user request failed', e); }
+                            // Sync with Neon DB (fire and forget)
+                            fetch('/api/sync-user', {
+                                method: 'POST',
+                                headers: {'Content-Type': 'application/json'},
+                                body: JSON.stringify(this.user)
+                            }).catch(e => console.error('sync-user request failed', e));
                         } else {
                             // Try to trigger QuickAuth if available
                             try {
@@ -160,24 +157,28 @@
                                             fid: newCtx.user.fid,
                                             loggedIn: true
                                         };
-                                        const r = await fetch('/api/sync-user', {
+                                        fetch('/api/sync-user', {
                                             method: 'POST',
                                             headers: {'Content-Type': 'application/json'},
                                             body: JSON.stringify(this.user)
-                                        });
-                                        if (!r.ok) console.warn('sync-user failed', await r.json());
+                                        }).catch(e => console.error('sync-user request failed', e));
                                     }
                                 }
                             } catch (e) { console.warn('QuickAuth authorize failed or not supported', e); }
                         }
                     } catch (e) { console.error("Farcaster SDK Error", e); }
                     
+                    // Load initial bids quickly (without metadata resolution)
                     await this.loadBids();
 
-                    // Now the interface is prepared — tell Farcaster it's ready to hide the splash
+                    // CRITICAL: Tell Farcaster the interface is ready to hide the splash IMMEDIATELY
                     try {
                         await sdk.actions.ready();
+                        console.debug('Farcaster splash screen hidden');
                     } catch (e) { console.warn('Farcaster sdk.actions.ready failed', e); }
+                    
+                    // Now resolve metadata in the background (doesn't block splash hiding)
+                    this.resolveMetadata().catch(e => console.warn('Background metadata resolution error', e));
                 },
 
                 async loadBids() {
@@ -185,8 +186,7 @@
                     try {
                         const provider = new ethers.JsonRpcProvider('https://mainnet.base.org');
                         const contract = new ethers.Contract(this.contractAddress, [
-                            "function getAllBids() view returns (tuple(uint256 totalAmount, string urlString, tuple(address contributor, uint256 amount, uint256 timestamp)[] contributions)[])",
-                            "function getBidderName(address _bidder) view returns (string)"
+                            "function getAllBids() view returns (tuple(uint256 totalAmount, string urlString, tuple(address contributor, uint256 amount, uint256 timestamp)[] contributions)[])"
                         ], provider);
 
                         const rawBids = await contract.getAllBids();
@@ -215,12 +215,16 @@
 
                         this.bids.sort((a,b) => b.amount - a.amount);
                         this.loading = false;
-                        await this.resolveMetadata(contract);
                     } catch (e) { console.warn('loadBids error', e); this.loading = false; }
                 },
 
 
-                async resolveMetadata(contract) {
+                async resolveMetadata() {
+                    const provider = new ethers.JsonRpcProvider('https://mainnet.base.org');
+                    const contract = new ethers.Contract(this.contractAddress, [
+                        "function getBidderName(address _bidder) view returns (string)"
+                    ], provider);
+
                     for (let bid of this.bids) {
                         console.debug('resolveMetadata: resolving', bid.bidderWallet, bid.url);
                         try {
@@ -231,13 +235,34 @@
                                 continue;
                             }
 
-                            // Pre-check wallet match for editing permission
+                            // Check wallet match for editing permission
                             try {
                                 const walletMatch = this.user.wallet && bid.bidderWallet && (this.user.wallet.toLowerCase() === bid.bidderWallet.toLowerCase());
-                                if (walletMatch) { bid.canEdit = true; this.bids = [...this.bids]; console.debug('resolveMetadata: walletMatch', { userWallet: this.user.wallet, bidderWallet: bid.bidderWallet }); }
+                                if (walletMatch) { 
+                                    bid.canEdit = true; 
+                                    this.bids = [...this.bids]; 
+                                    console.debug('resolveMetadata: walletMatch', { userWallet: this.user.wallet, bidderWallet: bid.bidderWallet }); 
+                                }
                             } catch (e) {}
 
-                            // Try on-chain name first
+                            // Try cache first
+                            let cached = null;
+                            try {
+                                const cacheRes = await fetch(`/api/cache-bidder-data?wallet=${bid.bidderWallet}`);
+                                if (cacheRes.ok) {
+                                    cached = await cacheRes.json();
+                                    console.debug('resolveMetadata: cache hit for', bid.bidderWallet, cached);
+                                }
+                            } catch (e) { console.debug('cache lookup failed', e); }
+
+                            if (cached?.bidder_name) {
+                                bid.bidderName = cached.bidder_name;
+                                if (cached.bidder_fid) bid.bidderFid = cached.bidder_fid;
+                                this.bids = [...this.bids];
+                                continue;
+                            }
+
+                            // Try on-chain name
                             let onChain = '';
                             try {
                                 const addr = ethers.getAddress(bid.bidderWallet);
@@ -248,6 +273,12 @@
 
                             if (onChain && onChain.trim() !== '') {
                                 bid.bidderName = onChain;
+                                // Cache the result
+                                fetch('/api/cache-bidder-data', {
+                                    method: 'POST',
+                                    headers: {'Content-Type': 'application/json'},
+                                    body: JSON.stringify({ bidderWallet: bid.bidderWallet, bidderName: onChain })
+                                }).catch(e => console.debug('Failed to cache bidder name', e));
                                 this.bids = [...this.bids];
                             } else {
                                 // Fallback to Neynar lookup (our proxy)
@@ -257,17 +288,20 @@
                                         const data = await res.json();
                                         if (data.username) {
                                             bid.bidderName = "@" + data.username;
-                                            this.bids = [...this.bids];
+                                            // Cache the result
+                                            fetch('/api/cache-bidder-data', {
+                                                method: 'POST',
+                                                headers: {'Content-Type': 'application/json'},
+                                                body: JSON.stringify({ bidderWallet: bid.bidderWallet, bidderName: "@" + data.username })
+                                            }).catch(e => console.debug('Failed to cache bidder name', e));
                                         } else {
                                             bid.bidderName = bid.bidderWallet ? bid.bidderWallet.slice(0,6) : 'unknown';
-                                            this.bids = [...this.bids];
                                         }
                                     } else {
                                         bid.bidderName = bid.bidderWallet ? bid.bidderWallet.slice(0,6) : 'unknown';
-                                        this.bids = [...this.bids];
                                     }
+                                    this.bids = [...this.bids];
                                 } catch (e) {
-                                    // If Neynar lookup fails, continue — we'll still try to resolve owner below
                                     bid.bidderName = bid.bidderWallet ? bid.bidderWallet.slice(0,6) : 'unknown';
                                     this.bids = [...this.bids];
                                 }
@@ -285,6 +319,12 @@
                                         if (!bid.bidderName || bid.bidderName === (bid.bidderWallet ? bid.bidderWallet.slice(0,6) : 'unknown')) {
                                             if (owner.username) { bid.bidderName = '@' + owner.username; }
                                         }
+                                        // Cache the FID
+                                        fetch('/api/cache-bidder-data', {
+                                            method: 'POST',
+                                            headers: {'Content-Type': 'application/json'},
+                                            body: JSON.stringify({ bidderWallet: bid.bidderWallet, bidderName: bid.bidderName, bidderFid: owner.fid })
+                                        }).catch(e => console.debug('Failed to cache bidder FID', e));
 
                                         // Determine edit permission: either wallet matches OR fid matches
                                         try {
@@ -296,8 +336,6 @@
 
                                         this.bids = [...this.bids];
                                     }
-                                } else {
-                                    console.debug('resolveMetadata: lookup-owner non-ok', { bidderWallet: bid.bidderWallet, status: ownerRes.status });
                                 }
                             } catch (e) { console.debug('resolveMetadata: lookup-owner error', e); }
 
