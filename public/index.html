@@ -122,26 +122,21 @@
                 async init() {
                     try {
                         const context = await sdk.context;
-                        console.log('Raw context.user keys:', context?.user ? Object.keys(context.user) : 'NO USER');
-                        console.log('Raw context.user:', context?.user);
                         if (context?.user) {
-                            // Try custodyAddress first, then fallback to other possible wallet fields
-                            const custody = context.user.custodyAddress || context.user.walletAddress || context.user.wallet;
-                        const wallet = custody ? custody.toLowerCase() : null;
-                        console.log('fc context user extracted:', { username: context.user.username, custody, wallet, fid: context.user.fid });
+                        console.log('fc context user:', { username: context.user.username, fid: context.user.fid });
                         this.user = {
                             username: context.user.username || 'anonymous',
                             pfp: context.user.pfpUrl || '',
-                            wallet: wallet,
+                            wallet: null, // Farcaster context doesn't provide wallet; we'll use FID for matching
                             fid: context.user.fid,
                             loggedIn: true
                         };
 
-                            // Sync with Neon DB (fire and forget)
+                            // Sync with Neon DB (fire and forget) — only send what we have
                             fetch('/api/sync-user', {
                                 method: 'POST',
                                 headers: {'Content-Type': 'application/json'},
-                                body: JSON.stringify(this.user)
+                                body: JSON.stringify({fid: this.user.fid, username: this.user.username, pfp: this.user.pfp})
                             }).catch(e => console.error('sync-user request failed', e));
                         } else {
                             // Try to trigger QuickAuth if available
@@ -162,7 +157,7 @@
                                         fetch('/api/sync-user', {
                                             method: 'POST',
                                             headers: {'Content-Type': 'application/json'},
-                                            body: JSON.stringify(this.user)
+                                            body: JSON.stringify({fid: this.user.fid, username: this.user.username, pfp: this.user.pfp})
                                         }).catch(e => console.error('sync-user request failed', e));
                                     }
                                 }
@@ -192,61 +187,33 @@
                         ], provider);
 
                         const rawBids = await contract.getAllBids();
-                        console.log('loadBids: fetched', rawBids.length, 'bids; this.user.wallet =', this.user.wallet);
-                        // Support both named-return objects and positional arrays returned by some providers
-                        this.bids = rawBids.map((bid, idx) => {
+                        console.log('loadBids: fetched', rawBids.length, 'bids');
+                        this.bids = rawBids.map(bid => {
                             const totalAmount = bid.totalAmount ?? bid[0] ?? 0;
-                            // url may be named or positional
                             let url = bid.urlString ?? bid[1] ?? '';
 
-                            // bidder wallet may come in different shapes:
-                            // - contributions array at bid.contributions[0].contributor
-                            // - positional address at bid[2]
                             let bidderWallet = '';
                             if (Array.isArray(bid.contributions) && bid.contributions.length > 0) {
                                 const c0 = bid.contributions[0];
                                 bidderWallet = (c0?.contributor ?? c0?.[0] ?? '') || '';
                             } else if (bid[2]) {
-                                // positional value might be a string address or nested array
                                 if (typeof bid[2] === 'string') bidderWallet = bid[2];
                                 else if (Array.isArray(bid[2]) && bid[2][0]) bidderWallet = (bid[2][0]?.contributor ?? bid[2][0]?.[0] ?? '') || '';
                             }
 
-                            // If contract returns positional tuple where index 2 is the wallet, prefer it
-                            try {
-                                if (!bidderWallet && bid[2] && typeof bid[2] === 'string') {
-                                    bidderWallet = bid[2];
-                                }
-                            } catch (e) {}
-
-                            // Ensure lowercase wallet
                             bidderWallet = (bidderWallet || '').toLowerCase();
 
-                            // If url is empty but contributions include a url-like field, try to find it
-                            if (!url) {
-                                // sometimes providers return an object/array; attempt safe fallback
-                                try {
-                                    if (typeof bid === 'object') {
-                                        if (bid[1] && typeof bid[1] === 'string') url = bid[1];
-                                    }
-                                } catch (e) { /* ignore */ }
-                            }
-
                             const truncated = bidderWallet ? bidderWallet.slice(0,6) : '...';
-                            const isCurrentUser = this.user?.wallet && bidderWallet && (this.user.wallet.toLowerCase() === bidderWallet.toLowerCase());
-                            if (bidderWallet === '0x65e3419e633833df1d602e7905cb9c7e541f0849' || url.includes('qr-facts')) {
-                                console.log(`loadBids[${idx}] (YOUR BID):`, { bidderWallet, url, userWallet: this.user?.wallet, isCurrentUser, userFid: this.user?.fid });
-                            }
                             return {
                                 url: url || '',
                                 amount: Number(totalAmount ?? 0),
-                                bidderName: isCurrentUser ? ('@' + this.user.username) : truncated,
+                                bidderName: truncated,
                                 bidderWallet: bidderWallet,
                                 projectTitle: "Loading...",
                                 hasRead: false,
                                 hasFacts: false,
-                                bidderFid: isCurrentUser ? this.user.fid : null,
-                                canEdit: !!isCurrentUser
+                                bidderFid: null,
+                                canEdit: false  // Will be set by resolveMetadata when we have owner FID
                             };
                         });
 
@@ -265,69 +232,53 @@
                     for (let bid of this.bids) {
                         console.debug('resolveMetadata: resolving', bid.bidderWallet, bid.url);
                         try {
-                            // Check wallet match for editing permission EARLY
-                            const walletMatch = this.user.wallet && bid.bidderWallet && (this.user.wallet.toLowerCase() === bid.bidderWallet.toLowerCase());
-                            if (walletMatch) { 
-                                bid.canEdit = true;
-                                console.debug('resolveMetadata: walletMatch', { userWallet: this.user.wallet, bidderWallet: bid.bidderWallet }); 
-                            }
-
-                            // If this is the current user, use context username and FID
-                            if (walletMatch) {
-                                bid.bidderName = "@" + this.user.username;
-                                bid.bidderFid = this.user.fid; // CRITICAL: Set FID from user context
-                                this.bids = [...this.bids];
-                                console.debug('resolveMetadata: using current user data', { username: this.user.username, fid: this.user.fid });
-                                continue;
-                            }
-
-                            // Try cache first
-                            let cached = null;
+                            // Regardless of everything, try to resolve owner FID from the bidder wallet
+                            // This is the key to determining edit permission
                             try {
-                                const cacheRes = await fetch(`/api/cache-bidder-data?wallet=${bid.bidderWallet}`);
-                                if (cacheRes.ok) {
-                                    cached = await cacheRes.json();
-                                    console.debug('resolveMetadata: cache hit for', bid.bidderWallet, cached);
-                                }
-                            } catch (e) { console.debug('cache lookup failed', e); }
-
-                            if (cached?.bidder_name) {
-                                bid.bidderName = cached.bidder_name;
-                                if (cached.bidder_fid) bid.bidderFid = cached.bidder_fid;
-                                this.bids = [...this.bids];
-                                console.debug('resolveMetadata: using cached data', { bidderWallet: bid.bidderWallet, cached });
-                                continue;
-                            }
-
-                            // First: try Neynar (fast authoritative username lookup)
-                            try {
-                                const nn = await fetch(`/api/lookup-names?address=${bid.bidderWallet}`);
-                                if (nn.ok) {
-                                    const nd = await nn.json();
-                                    if (nd?.username) {
-                                        bid.bidderName = "@" + nd.username;
-                                        // If Neynar provided a fid, use it
-                                        if (nd?.fid) {
-                                            bid.bidderFid = nd.fid;
-                                            try {
-                                                if (this.user.fid && (this.user.fid === bid.bidderFid)) {
-                                                    bid.canEdit = true;
-                                                }
-                                            } catch (e) {}
+                                const ownerRes = await fetch(`/api/lookup-owner?address=${bid.bidderWallet}`);
+                                if (ownerRes.ok) {
+                                    const owner = await ownerRes.json();
+                                    console.log('resolveMetadata: lookup-owner result for', bid.bidderWallet, owner);
+                                    if (owner?.fid) {
+                                        bid.bidderFid = owner.fid;
+                                        // CRITICAL: If owner FID matches current user FID, grant edit permission
+                                        if (this.user.fid && (String(this.user.fid) === String(owner.fid))) {
+                                            bid.canEdit = true;
+                                            bid.bidderName = "@" + this.user.username;
+                                            console.log('✓ EDIT GRANTED - FID match:', { userFid: this.user.fid, ownerFid: owner.fid, url: bid.url });
                                         }
-                                        // Cache the result (may include FID)
-                                        fetch('/api/cache-bidder-data', {
-                                            method: 'POST',
-                                            headers: {'Content-Type': 'application/json'},
-                                            body: JSON.stringify({ bidderWallet: bid.bidderWallet, bidderName: bid.bidderName, bidderFid: bid.bidderFid })
-                                        }).catch(e => console.debug('Failed to cache Neynar name', e));
+                                        // Also update name from lookup-owner if we have it
+                                        if (!bid.bidderName.startsWith('@') && owner.username) {
+                                            bid.bidderName = '@' + owner.username;
+                                        }
                                         this.bids = [...this.bids];
                                     }
                                 }
-                            } catch (e) { console.debug('neynar lookup failed', e); }
+                            } catch (e) { console.debug('resolveMetadata: lookup-owner error', e); }
 
-                            // If Neynar didn't provide a name, try on-chain name
-                            if (!bid.bidderName || bid.bidderName === '...' || bid.bidderName.startsWith(bid.bidderWallet?.slice(0,6))) {
+                            // If still no name, try Neynar
+                            if (!bid.bidderName.startsWith('@')) {
+                                try {
+                                    const nn = await fetch(`/api/lookup-names?address=${bid.bidderWallet}`);
+                                    if (nn.ok) {
+                                        const nd = await nn.json();
+                                        if (nd?.username) {
+                                            bid.bidderName = "@" + nd.username;
+                                            if (nd?.fid) {
+                                                bid.bidderFid = nd.fid;
+                                                if (this.user.fid && (String(this.user.fid) === String(nd.fid))) {
+                                                    bid.canEdit = true;
+                                                    console.log('✓ EDIT GRANTED via Neynar FID match:', { userFid: this.user.fid, neynarFid: nd.fid, url: bid.url });
+                                                }
+                                            }
+                                            this.bids = [...this.bids];
+                                        }
+                                    }
+                                } catch (e) { console.debug('neynar lookup failed', e); }
+                            }
+
+                            // If still no name, try on-chain
+                            if (!bid.bidderName.startsWith('@')) {
                                 let onChain = '';
                                 try {
                                     const addr = ethers.getAddress(bid.bidderWallet);
@@ -335,77 +286,31 @@
                                 } catch (e) {
                                     try { onChain = await contract.getBidderName(bid.bidderWallet); } catch (e2) { onChain = ''; }
                                 }
-
                                 if (onChain && onChain.trim() !== '') {
                                     bid.bidderName = onChain;
-                                    // Cache the result (without FID)
-                                    fetch('/api/cache-bidder-data', {
-                                        method: 'POST',
-                                        headers: {'Content-Type': 'application/json'},
-                                        body: JSON.stringify({ bidderWallet: bid.bidderWallet, bidderName: onChain })
-                                    }).catch(e => console.debug('Failed to cache onChain name', e));
                                     this.bids = [...this.bids];
                                 }
                             }
 
-                            // Regardless of how we got a name, try to resolve FID from local DB (lookup-owner)
+                            // Title Resolution
                             try {
-                                const ownerRes = await fetch(`/api/lookup-owner?address=${bid.bidderWallet}`);
-                                if (ownerRes.ok) {
-                                    const owner = await ownerRes.json();
-                                    console.debug('resolveMetadata: lookup-owner result', { bidderWallet: bid.bidderWallet, owner });
-                                    if (owner?.fid) {
-                                        bid.bidderFid = owner.fid;
-                                        // Prefer DB username if we don't have a better one
-                                        if ((!bid.bidderName || bid.bidderName === (bid.bidderWallet ? bid.bidderWallet.slice(0,6) : 'unknown')) && owner.username) {
-                                            bid.bidderName = '@' + owner.username;
-                                        }
-                                        // Cache complete data
-                                        fetch('/api/cache-bidder-data', {
-                                            method: 'POST',
-                                            headers: {'Content-Type': 'application/json'},
-                                            body: JSON.stringify({ bidderWallet: bid.bidderWallet, bidderName: bid.bidderName, bidderFid: owner.fid })
-                                        }).catch(e => console.debug('Failed to cache bidder data', e));
+                                const r = await fetch(`/api/get-title?url=${encodeURIComponent(bid.url)}`);
+                                const d = await r.json();
+                                if (d.title) { bid.projectTitle = d.title; this.bids = [...this.bids]; }
+                            } catch (e) { /* ignore title fetch errors */ }
 
-                                        // Determine edit permission: either wallet matches OR fid matches
-                                        try {
-                                            const walletMatch2 = this.user.wallet && bid.bidderWallet && (this.user.wallet.toLowerCase() === bid.bidderWallet.toLowerCase());
-                                            const fidMatch = (this.user.fid || this.user.fid === 0) && (bid.bidderFid || bid.bidderFid === 0) && (String(this.user.fid) === String(bid.bidderFid));
-                                            bid.canEdit = walletMatch2 || fidMatch || bid.canEdit;
-                                            if (bid.canEdit) console.debug('resolveMetadata: bid editable by user', { walletMatch: walletMatch2, fidMatch, userWallet: this.user.wallet, bidderWallet: bid.bidderWallet, userFid: this.user.fid, bidderFid: bid.bidderFid });
-                                        } catch (e) { bid.canEdit = bid.canEdit || false; }
-
-                                        this.bids = [...this.bids];
-                                    }
-                                }
-                            } catch (e) { console.debug('resolveMetadata: lookup-owner error', e); }
+                            // Check whether facts have been provided for this URL
+                            try {
+                                const rf = await fetch(`/api/get-facts?url=${encodeURIComponent(bid.url)}`);
+                                const fd = await rf.json();
+                                const content = fd.content || '';
+                                bid.hasFacts = !(content.toLowerCase().includes('not provided') || content.trim().length < 10);
+                                this.bids = [...this.bids];
+                            } catch (e) {
+                                bid.hasFacts = false; this.bids = [...this.bids];
+                            }
                         } catch (e) {
                             console.warn('resolveMetadata error for', bid, e);
-                        }
-
-                        // Title Resolution
-                        try {
-                            const r = await fetch(`/api/get-title?url=${encodeURIComponent(bid.url)}`);
-                            const d = await r.json();
-                            if (d.title) { bid.projectTitle = d.title; this.bids = [...this.bids]; }
-                        } catch (e) { /* ignore title fetch errors */ }
-
-                        // Check whether facts have been provided for this URL
-                        try {
-                            const rf = await fetch(`/api/get-facts?url=${encodeURIComponent(bid.url)}`);
-                            const fd = await rf.json();
-                            const content = fd.content || '';
-                            bid.hasFacts = !(content.toLowerCase().includes('not provided') || content.trim().length < 10);
-
-                            // If the facts row records a bidder_wallet and we don't have FID yet, try to get it
-                            if (fd.bidder_wallet && !bid.bidderFid) {
-                                bid.bidderFid = fd.ownerFid || null;
-                                console.debug('resolveMetadata: got facts owner for', bid.url, { bidder_wallet: fd.bidder_wallet, ownerFid: fd.ownerFid, ownerUsername: fd.ownerUsername });
-                            }
-
-                            this.bids = [...this.bids];
-                        } catch (e) {
-                            bid.hasFacts = false; this.bids = [...this.bids];
                         }
                     }
                 },
