@@ -57,6 +57,9 @@ export default async function handler(req, res) {
                             }
                             if (userObj?.username) username = username || userObj.username;
                             if (userObj?.pfpUrl) pfp = pfp || userObj.pfpUrl;
+                            // Capture Neynar score if present
+                            if (userObj?.neynar_user_score != null) score = Number(userObj.neynar_user_score);
+                            else if (userObj?.neynar_score != null) score = Number(userObj.neynar_score);
                         }
                     } catch (e) {
                         console.debug('sync-user: Neynar fetch failed', e?.message || e);
@@ -327,6 +330,8 @@ async function handleSyncUser(req, res) {
                     if (userObj?.verified_addresses?.primary?.eth_address) wallet = userObj.verified_addresses.primary.eth_address;
                     else if (userObj?.verified_addresses?.eth_addresses?.[0]) wallet = userObj.verified_addresses.eth_addresses[0];
                     if (wallet) wallet = String(wallet).toLowerCase();
+                    if (userObj?.neynar_user_score != null) score = Number(userObj.neynar_user_score);
+                    else if (userObj?.neynar_score != null) score = Number(userObj.neynar_score);
                 }
             } catch (e) {
                 console.debug('sync-user: failed to fetch wallet from Neynar', e?.message || e);

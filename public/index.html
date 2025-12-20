@@ -366,7 +366,7 @@
                         const res = await fetch('/api/claims', {
                             method: 'POST',
                             headers: {'Content-Type': 'application/json'},
-                            body: JSON.stringify({ wallet: this.user.wallet, url: bid.url })
+                            body: JSON.stringify({ wallet: this.user.wallet, fid: this.user.fid, url: bid.url })
                         });
                         const data = await res.json();
                         if (res.ok) {
