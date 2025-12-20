@@ -116,6 +116,7 @@ document.addEventListener('alpine:init', () => {
         },
 
         async claim(bid) {
+            console.debug('claim invoked', { bid, user: this.user });
             if (!this.user.loggedIn) return alert("Please log in via Farcaster");
             if (!bid.hasRead) return alert('Please review the facts before claiming.');
             if (!bid.hasFacts) return alert('No facts to claim for this project.');
@@ -126,15 +127,19 @@ document.addEventListener('alpine:init', () => {
                     body: JSON.stringify({ wallet: this.user.wallet, fid: this.user.fid, url: bid.url })
                 });
                 const data = await res.json();
+                console.debug('claim response', { status: res.status, data });
                 if (res.ok) {
                     bid.claimedAmount = data.amount || 250000;
                     bid.claimTx = data.txHash || null;
                     bid.hasClaimed = true;
+                    // force reactivity
+                    this.bids = [...this.bids];
                     alert(data.message ? (data.message + (data.txHash ? ' Tx: ' + data.txHash : '')) : 'Claim successful');
                 } else {
                     alert(data.error || 'Claim failed');
                 }
             } catch (e) { 
+                console.error('claim exception', e); 
                 alert('Claim failed: ' + e.message); 
             }
         }
