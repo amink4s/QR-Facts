@@ -193,19 +193,42 @@
                         console.debug('loadBids: fetched', rawBids.length, 'bids from contract');
                         // Support both named-return objects and positional arrays returned by some providers
                         this.bids = rawBids.map(bid => {
-                            const totalAmount = bid.totalAmount ?? bid[0];
-                            const url = bid.urlString ?? bid[1] ?? '';
-                            const contributions = bid.contributions ?? bid[2] ?? [];
-                            const firstContributor = contributions[0]
-                                ? (contributions[0].contributor ?? contributions[0][0] ?? '')
-                                : '';
+                            const totalAmount = bid.totalAmount ?? bid[0] ?? 0;
+                            // url may be named or positional
+                            let url = bid.urlString ?? bid[1] ?? '';
 
-                            const truncated = (firstContributor || '').slice(0,6) || '...';
+                            // bidder wallet may come in different shapes:
+                            // - contributions array at bid.contributions[0].contributor
+                            // - positional address at bid[2]
+                            let bidderWallet = '';
+                            if (Array.isArray(bid.contributions) && bid.contributions.length > 0) {
+                                const c0 = bid.contributions[0];
+                                bidderWallet = (c0?.contributor ?? c0?.[0] ?? '') || '';
+                            } else if (bid[2]) {
+                                // positional value might be a string address or nested array
+                                if (typeof bid[2] === 'string') bidderWallet = bid[2];
+                                else if (Array.isArray(bid[2]) && bid[2][0]) bidderWallet = (bid[2][0]?.contributor ?? bid[2][0]?.[0] ?? '') || '';
+                            }
+
+                            // Ensure lowercase wallet
+                            bidderWallet = (bidderWallet || '').toLowerCase();
+
+                            // If url is empty but contributions include a url-like field, try to find it
+                            if (!url) {
+                                // sometimes providers return an object/array; attempt safe fallback
+                                try {
+                                    if (typeof bid === 'object') {
+                                        if (bid[1] && typeof bid[1] === 'string') url = bid[1];
+                                    }
+                                } catch (e) { /* ignore */ }
+                            }
+
+                            const truncated = bidderWallet ? bidderWallet.slice(0,6) : '...';
                             return {
-                                url: url,
+                                url: url || '',
                                 amount: Number(totalAmount ?? 0),
                                 bidderName: truncated,
-                                bidderWallet: (firstContributor || '').toLowerCase(),
+                                bidderWallet: bidderWallet,
                                 projectTitle: "Loading...",
                                 hasRead: false,
                                 hasFacts: false,
@@ -334,7 +357,7 @@
                                         // Determine edit permission: either wallet matches OR fid matches
                                         try {
                                             const walletMatch2 = this.user.wallet && bid.bidderWallet && (this.user.wallet.toLowerCase() === bid.bidderWallet.toLowerCase());
-                                            const fidMatch = this.user.fid && bid.bidderFid && (this.user.fid === bid.bidderFid);
+                                            const fidMatch = (this.user.fid || this.user.fid === 0) && (bid.bidderFid || bid.bidderFid === 0) && (String(this.user.fid) === String(bid.bidderFid));
                                             bid.canEdit = walletMatch2 || fidMatch || bid.canEdit;
                                             if (bid.canEdit) console.debug('resolveMetadata: bid editable by user', { walletMatch: walletMatch2, fidMatch, userWallet: this.user.wallet, bidderWallet: bid.bidderWallet, userFid: this.user.fid, bidderFid: bid.bidderFid });
                                         } catch (e) { bid.canEdit = bid.canEdit || false; }
