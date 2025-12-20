@@ -200,10 +200,11 @@
                                 ? (contributions[0].contributor ?? contributions[0][0] ?? '')
                                 : '';
 
+                            const truncated = (firstContributor || '').slice(0,6) || '...';
                             return {
                                 url: url,
                                 amount: Number(totalAmount ?? 0),
-                                bidderName: "...",
+                                bidderName: truncated,
                                 bidderWallet: (firstContributor || '').toLowerCase(),
                                 projectTitle: "Loading...",
                                 hasRead: false,
@@ -269,11 +270,20 @@
                                     const nd = await nn.json();
                                     if (nd?.username) {
                                         bid.bidderName = "@" + nd.username;
-                                        // Cache the result (no FID)
+                                        // If Neynar provided a fid, use it
+                                        if (nd?.fid) {
+                                            bid.bidderFid = nd.fid;
+                                            try {
+                                                if (this.user.fid && (this.user.fid === bid.bidderFid)) {
+                                                    bid.canEdit = true;
+                                                }
+                                            } catch (e) {}
+                                        }
+                                        // Cache the result (may include FID)
                                         fetch('/api/cache-bidder-data', {
                                             method: 'POST',
                                             headers: {'Content-Type': 'application/json'},
-                                            body: JSON.stringify({ bidderWallet: bid.bidderWallet, bidderName: bid.bidderName })
+                                            body: JSON.stringify({ bidderWallet: bid.bidderWallet, bidderName: bid.bidderName, bidderFid: bid.bidderFid })
                                         }).catch(e => console.debug('Failed to cache Neynar name', e));
                                         this.bids = [...this.bids];
                                     }

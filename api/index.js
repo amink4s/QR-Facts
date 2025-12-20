@@ -69,8 +69,11 @@ async function handleLookupNames(req, res) {
 
         // Neynar returns an object keyed by address (lowercased); make parsing robust
         const key = Object.keys(data).find(k => k.toLowerCase() === address.toLowerCase());
-        const username = key ? (data[key]?.[0]?.username || null) : null;
-        return res.status(200).json({ username });
+        const userObj = key ? data[key]?.[0] : null;
+        const username = userObj?.username || null;
+        // Neynar may return fid or id field; try a few likely keys
+        const fid = userObj?.fid || userObj?.farcasterId || userObj?.id || null;
+        return res.status(200).json({ username, fid });
     } catch (e) {
         console.error('lookup-names error', e?.message || e);
         return res.status(200).json({ username: null });
