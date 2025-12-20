@@ -20,36 +20,66 @@ export default async function handler(req, res) {
             return handleGetFacts(req, res);
         case 'sync-user':
             return handleSyncUser(req, res);
-        case 'user':
-            return handleUser(req, res);
-        case 'facts':
-            return handleFacts(req, res);
-        case 'claims':
-            return handleClaims(req, res);
-        case 'check-claims':
-            return handleCheckClaims(req, res);
-        case 'submit-fact':
-            return handleSubmitFact(req, res);
-        case 'save-facts':
-            return handleSaveFacts(req, res);
-        default:
-            return res.status(404).json({ error: 'Invalid action' });
-    }
-}
+        // Sync user
+        async function handleSyncUser(req, res) {
+            if (req.method !== 'POST') return res.status(405).end();
+    
+            try {
+                if (!process.env.DATABASE_URL) return res.status(500).json({ error: 'DATABASE_URL not configured' });
+        
+                const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+                let { fid, wallet, username, pfp, score } = req.body;
 
-// Lookup owner by wallet address
-async function handleLookupOwner(req, res) {
-    const { address } = req.query;
-    if (!address) return res.status(400).json({ error: 'address required' });
-    if (!process.env.DATABASE_URL) return res.status(500).json({ error: 'DATABASE_URL not configured' });
+                if (!fid) return res.status(400).json({ error: 'fid is required' });
 
-    try {
-        const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-        const r = await pool.query(`SELECT fid, username, pfp_url FROM users WHERE wallet_address = $1 LIMIT 1`, [address.toLowerCase()]);
-        if (r.rowCount === 0) return res.status(200).json({ fid: null, username: null, pfp: null });
-        const row = r.rows[0];
-        res.status(200).json({ fid: row.fid, username: row.username, pfp: row.pfp_url });
-    } catch (e) {
+                // If wallet not provided, fetch from Neynar bulk endpoint using fid
+                if (!wallet) {
+                    try {
+                        const neynarUrl = `https://api.neynar.com/v2/farcaster/user/bulk?fids=${encodeURIComponent(fid)}`;
+                        const resp = await fetch(neynarUrl, { method: 'GET', headers: { 'x-api-key': process.env.NEYNAR_API_KEY || '' } });
+                        const nd = await resp.json();
+                        // Response may have .users array or be an object keyed by fid
+                        let userObj = null;
+                        if (Array.isArray(nd?.users) && nd.users.length > 0) userObj = nd.users[0];
+                        else if (nd && typeof nd === 'object') {
+                            const key = Object.keys(nd).find(k => String(k) === String(fid));
+                            if (key) userObj = nd[key]?.[0] || nd[key];
+                        }
+
+                        if (!userObj) userObj = nd?.[0] || null;
+
+                        if (userObj) {
+                            if (userObj?.verified_addresses?.primary?.eth_address) {
+                                wallet = userObj.verified_addresses.primary.eth_address;
+                            } else if (userObj?.verified_addresses?.eth_addresses?.[0]) {
+                                wallet = userObj.verified_addresses.eth_addresses[0];
+                            }
+                            if (userObj?.username) username = username || userObj.username;
+                            if (userObj?.pfpUrl) pfp = pfp || userObj.pfpUrl;
+                        }
+                    } catch (e) {
+                        console.debug('sync-user: Neynar fetch failed', e?.message || e);
+                    }
+                }
+
+                await pool.query(`
+                    INSERT INTO users (fid, wallet_address, username, pfp_url, neynar_score, last_score_update)
+                    VALUES ($1, $2, $3, $4, $5, NOW())
+                    ON CONFLICT (fid) DO UPDATE SET
+                        wallet_address = COALESCE(EXCLUDED.wallet_address, users.wallet_address),
+                        username = EXCLUDED.username,
+                        pfp_url = EXCLUDED.pfp_url,
+                        neynar_score = EXCLUDED.neynar_score,
+                        last_score_update = NOW(),
+                        updated_at = NOW()
+                `, [fid, wallet ? wallet.toLowerCase() : null, username, pfp, score]);
+
+                res.status(200).json({ success: true, wallet: wallet || null });
+            } catch (e) {
+                console.error('sync-user error:', e.message);
+                res.status(500).json({ error: e.message });
+            }
+        }
         console.error('lookup-owner error', e);
         res.status(500).json({ error: e.message });
     }
