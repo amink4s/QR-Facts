@@ -56,15 +56,24 @@ async function handleLookupOwner(req, res) {
 // Lookup names from Neynar
 async function handleLookupNames(req, res) {
     const { address } = req.query;
+    if (!address) return res.status(400).json({ username: null });
+
     try {
-        const response = await fetch(`https://api.neynar.com/v2/farcaster/user/bulk_by_address?addresses=${address}`, {
-            headers: { 'api_key': process.env.NEYNAR_API_KEY }
+        // Use documented Neynar endpoint and header
+        const url = `https://api.neynar.com/v2/farcaster/user/bulk-by-address?addresses=${encodeURIComponent(address)}`;
+        const response = await fetch(url, {
+            method: 'GET',
+            headers: { 'x-api-key': process.env.NEYNAR_API_KEY }
         });
         const data = await response.json();
-        const username = data[address.toLowerCase()]?.[0]?.username;
-        res.status(200).json({ username });
+
+        // Neynar returns an object keyed by address (lowercased); make parsing robust
+        const key = Object.keys(data).find(k => k.toLowerCase() === address.toLowerCase());
+        const username = key ? (data[key]?.[0]?.username || null) : null;
+        return res.status(200).json({ username });
     } catch (e) {
-        res.status(200).json({ username: null });
+        console.error('lookup-names error', e?.message || e);
+        return res.status(200).json({ username: null });
     }
 }
 

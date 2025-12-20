@@ -262,74 +262,77 @@
                                 continue;
                             }
 
-                            // Try lookup-owner first (has both name and FID from DB)
+                            // First: try Neynar (fast authoritative username lookup)
+                            try {
+                                const nn = await fetch(`/api/lookup-names?address=${bid.bidderWallet}`);
+                                if (nn.ok) {
+                                    const nd = await nn.json();
+                                    if (nd?.username) {
+                                        bid.bidderName = "@" + nd.username;
+                                        // Cache the result (no FID)
+                                        fetch('/api/cache-bidder-data', {
+                                            method: 'POST',
+                                            headers: {'Content-Type': 'application/json'},
+                                            body: JSON.stringify({ bidderWallet: bid.bidderWallet, bidderName: bid.bidderName })
+                                        }).catch(e => console.debug('Failed to cache Neynar name', e));
+                                        this.bids = [...this.bids];
+                                    }
+                                }
+                            } catch (e) { console.debug('neynar lookup failed', e); }
+
+                            // If Neynar didn't provide a name, try on-chain name
+                            if (!bid.bidderName || bid.bidderName === '...' || bid.bidderName.startsWith(bid.bidderWallet?.slice(0,6))) {
+                                let onChain = '';
+                                try {
+                                    const addr = ethers.getAddress(bid.bidderWallet);
+                                    onChain = await contract.getBidderName(addr);
+                                } catch (e) {
+                                    try { onChain = await contract.getBidderName(bid.bidderWallet); } catch (e2) { onChain = ''; }
+                                }
+
+                                if (onChain && onChain.trim() !== '') {
+                                    bid.bidderName = onChain;
+                                    // Cache the result (without FID)
+                                    fetch('/api/cache-bidder-data', {
+                                        method: 'POST',
+                                        headers: {'Content-Type': 'application/json'},
+                                        body: JSON.stringify({ bidderWallet: bid.bidderWallet, bidderName: onChain })
+                                    }).catch(e => console.debug('Failed to cache onChain name', e));
+                                    this.bids = [...this.bids];
+                                }
+                            }
+
+                            // Regardless of how we got a name, try to resolve FID from local DB (lookup-owner)
                             try {
                                 const ownerRes = await fetch(`/api/lookup-owner?address=${bid.bidderWallet}`);
                                 if (ownerRes.ok) {
                                     const owner = await ownerRes.json();
                                     console.debug('resolveMetadata: lookup-owner result', { bidderWallet: bid.bidderWallet, owner });
                                     if (owner?.fid) {
-                                        bid.bidderFid = owner.fid; // CRITICAL: Set FID from DB
-                                        if (owner.username) { 
-                                            bid.bidderName = '@' + owner.username; 
+                                        bid.bidderFid = owner.fid;
+                                        // Prefer DB username if we don't have a better one
+                                        if ((!bid.bidderName || bid.bidderName === (bid.bidderWallet ? bid.bidderWallet.slice(0,6) : 'unknown')) && owner.username) {
+                                            bid.bidderName = '@' + owner.username;
                                         }
-                                        // Cache the complete data
+                                        // Cache complete data
                                         fetch('/api/cache-bidder-data', {
                                             method: 'POST',
                                             headers: {'Content-Type': 'application/json'},
                                             body: JSON.stringify({ bidderWallet: bid.bidderWallet, bidderName: bid.bidderName, bidderFid: owner.fid })
                                         }).catch(e => console.debug('Failed to cache bidder data', e));
 
+                                        // Determine edit permission: either wallet matches OR fid matches
+                                        try {
+                                            const walletMatch2 = this.user.wallet && bid.bidderWallet && (this.user.wallet.toLowerCase() === bid.bidderWallet.toLowerCase());
+                                            const fidMatch = this.user.fid && bid.bidderFid && (this.user.fid === bid.bidderFid);
+                                            bid.canEdit = walletMatch2 || fidMatch || bid.canEdit;
+                                            if (bid.canEdit) console.debug('resolveMetadata: bid editable by user', { walletMatch: walletMatch2, fidMatch, userWallet: this.user.wallet, bidderWallet: bid.bidderWallet, userFid: this.user.fid, bidderFid: bid.bidderFid });
+                                        } catch (e) { bid.canEdit = bid.canEdit || false; }
+
                                         this.bids = [...this.bids];
-                                        continue; // Skip remaining lookups since we have FID
                                     }
                                 }
                             } catch (e) { console.debug('resolveMetadata: lookup-owner error', e); }
-
-                            // Try on-chain name (doesn't give us FID, but gives us a name)
-                            let onChain = '';
-                            try {
-                                const addr = ethers.getAddress(bid.bidderWallet);
-                                onChain = await contract.getBidderName(addr);
-                            } catch (e) {
-                                try { onChain = await contract.getBidderName(bid.bidderWallet); } catch (e2) { onChain = ''; }
-                            }
-
-                            if (onChain && onChain.trim() !== '') {
-                                bid.bidderName = onChain;
-                                // Cache the result (without FID since we don't have it)
-                                fetch('/api/cache-bidder-data', {
-                                    method: 'POST',
-                                    headers: {'Content-Type': 'application/json'},
-                                    body: JSON.stringify({ bidderWallet: bid.bidderWallet, bidderName: onChain })
-                                }).catch(e => console.debug('Failed to cache bidder name', e));
-                                this.bids = [...this.bids];
-                            } else {
-                                // Fallback to Neynar lookup (doesn't give FID either, just username)
-                                try {
-                                    const res = await fetch(`/api/lookup-names?address=${bid.bidderWallet}`);
-                                    if (res.ok) {
-                                        const data = await res.json();
-                                        if (data.username) {
-                                            bid.bidderName = "@" + data.username;
-                                            // Cache the result
-                                            fetch('/api/cache-bidder-data', {
-                                                method: 'POST',
-                                                headers: {'Content-Type': 'application/json'},
-                                                body: JSON.stringify({ bidderWallet: bid.bidderWallet, bidderName: "@" + data.username })
-                                            }).catch(e => console.debug('Failed to cache bidder name', e));
-                                        } else {
-                                            bid.bidderName = bid.bidderWallet ? bid.bidderWallet.slice(0,6) : 'unknown';
-                                        }
-                                    } else {
-                                        bid.bidderName = bid.bidderWallet ? bid.bidderWallet.slice(0,6) : 'unknown';
-                                    }
-                                    this.bids = [...this.bids];
-                                } catch (e) {
-                                    bid.bidderName = bid.bidderWallet ? bid.bidderWallet.slice(0,6) : 'unknown';
-                                    this.bids = [...this.bids];
-                                }
-                            }
                         } catch (e) {
                             console.warn('resolveMetadata error for', bid, e);
                         }
