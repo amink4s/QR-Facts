@@ -189,9 +189,9 @@
                         ], provider);
 
                         const rawBids = await contract.getAllBids();
-                        console.debug('loadBids: fetched', rawBids.length, 'bids from contract');
+                        console.log('loadBids: fetched', rawBids.length, 'bids; this.user.wallet =', this.user.wallet);
                         // Support both named-return objects and positional arrays returned by some providers
-                        this.bids = rawBids.map(bid => {
+                        this.bids = rawBids.map((bid, idx) => {
                             const totalAmount = bid.totalAmount ?? bid[0] ?? 0;
                             // url may be named or positional
                             let url = bid.urlString ?? bid[1] ?? '';
@@ -231,6 +231,9 @@
 
                             const truncated = bidderWallet ? bidderWallet.slice(0,6) : '...';
                             const isCurrentUser = this.user?.wallet && bidderWallet && (this.user.wallet.toLowerCase() === bidderWallet.toLowerCase());
+                            if (bidderWallet === '0x65e3419e633833df1d602e7905cb9c7e541f0849' || url.includes('qr-facts')) {
+                                console.log(`loadBids[${idx}] (YOUR BID):`, { bidderWallet, url, userWallet: this.user?.wallet, isCurrentUser, userFid: this.user?.fid });
+                            }
                             return {
                                 url: url || '',
                                 amount: Number(totalAmount ?? 0),
