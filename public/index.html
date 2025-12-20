@@ -122,10 +122,13 @@
                 async init() {
                     try {
                         const context = await sdk.context;
+                        console.log('Raw context.user keys:', context?.user ? Object.keys(context.user) : 'NO USER');
+                        console.log('Raw context.user:', context?.user);
                         if (context?.user) {
-                            const custody = context.user.custodyAddress;
+                            // Try custodyAddress first, then fallback to other possible wallet fields
+                            const custody = context.user.custodyAddress || context.user.walletAddress || context.user.wallet;
                         const wallet = custody ? custody.toLowerCase() : null;
-                        console.debug('fc context user:', { username: context.user.username, hasCustody: !!custody, fid: context.user.fid });
+                        console.log('fc context user extracted:', { username: context.user.username, custody, wallet, fid: context.user.fid });
                         this.user = {
                             username: context.user.username || 'anonymous',
                             pfp: context.user.pfpUrl || '',

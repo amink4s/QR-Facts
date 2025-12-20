@@ -123,11 +123,12 @@ async function handleCacheBidderData(req, res) {
             if (result.length > 0) {
                 return res.status(200).json(result[0]);
             } else {
-                return res.status(404).json({ error: 'Not found' });
+                // Return 200 with null values instead of 404 to avoid frontend errors
+                return res.status(200).json({ bidder_name: null, bidder_fid: null, last_updated: null });
             }
         } catch (e) {
             console.error('cache-bidder-data error:', e.message);
-            return res.status(500).json({ error: e.message });
+            return res.status(200).json({ bidder_name: null, bidder_fid: null, last_updated: null });
         }
     } else {
         return res.status(405).json({ error: 'Method not allowed' });
@@ -200,23 +201,28 @@ async function handleGetFacts(req, res) {
 // Sync user
 async function handleSyncUser(req, res) {
     if (req.method !== 'POST') return res.status(405).end();
+    
+    try {
+        const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+        const { fid, wallet, username, pfp, score } = req.body;
 
-    const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-    const { fid, wallet, username, pfp, score } = req.body;
+        await pool.query(`
+            INSERT INTO users (fid, wallet_address, username, pfp_url, neynar_score, last_score_update)
+            VALUES ($1, $2, $3, $4, $5, NOW())
+            ON CONFLICT (fid) DO UPDATE SET
+                wallet_address = EXCLUDED.wallet_address,
+                username = EXCLUDED.username,
+                pfp_url = EXCLUDED.pfp_url,
+                neynar_score = EXCLUDED.neynar_score,
+                last_score_update = NOW(),
+                updated_at = NOW()
+        `, [fid, wallet?.toLowerCase(), username, pfp, score]);
 
-    await pool.query(`
-        INSERT INTO users (fid, wallet_address, username, pfp_url, neynar_score, last_score_update)
-        VALUES ($1, $2, $3, $4, $5, NOW())
-        ON CONFLICT (fid) DO UPDATE SET
-            wallet_address = EXCLUDED.wallet_address,
-            username = EXCLUDED.username,
-            pfp_url = EXCLUDED.pfp_url,
-            neynar_score = EXCLUDED.neynar_score,
-            last_score_update = NOW(),
-            updated_at = NOW()
-    `, [fid, wallet, username, pfp, score]);
-
-    res.status(200).json({ success: true });
+        res.status(200).json({ success: true });
+    } catch (e) {
+        console.error('sync-user error:', e.message);
+        res.status(500).json({ error: e.message });
+    }
 }
 
 // User handler (placeholder for compatibility)
