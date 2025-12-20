@@ -1,6 +1,5 @@
 import { neon, Pool } from '@neondatabase/serverless';
-
-const DEFAULT_CLAIM_AMOUNT = Number(process.env.DEFAULT_CLAIM_AMOUNT || 250000);
+import { ethers } from 'ethers';
 
 export default async function handler(req, res) {
     const { wallet, fid, url } = req.body;
@@ -33,55 +32,69 @@ export default async function handler(req, res) {
         const today = await sql`SELECT * FROM facts_claims WHERE lower(wallet_address) = ${userWallet} AND claim_date = CURRENT_DATE`;
         if (today.length > 0) return res.status(400).json({ error: "Already claimed today!" });
 
-        // 2. Resolve fid if available and set default claim amount (skip Neynar score checks for now)
-        let resolvedFid = fid || null;
-        if (!resolvedFid) {
-            const dbUser = await sql`SELECT fid FROM users WHERE lower(wallet_address) = ${userWallet} LIMIT 1`;
-            if (dbUser?.length) resolvedFid = dbUser[0].fid || null;
+        // 2. Try DB first for stored Neynar score / fid
+        let fid = null;
+        let score = null;
+        const dbUser = await sql`SELECT fid, neynar_score FROM users WHERE lower(wallet_address) = ${userWallet} LIMIT 1`;
+        if (dbUser?.length && dbUser[0].neynar_score != null) {
+            score = Number(dbUser[0].neynar_score);
+            fid = dbUser[0].fid || null;
+        } else {
+            // Fallback: fetch Neynar
+            try {
+                const neynarRes = await fetch(`https://api.neynar.com/v2/farcaster/user/bulk-by-address?addresses=${encodeURIComponent(userWallet)}`, {
+                    headers: { 'x-api-key': process.env.NEYNAR_API_KEY || '' }
+                });
+                const neynarData = await neynarRes.json();
+                const key = Object.keys(neynarData || {}).find(k => k.toLowerCase() === userWallet);
+                const userObj = key ? neynarData[key]?.[0] : (Array.isArray(neynarData) ? neynarData[0] : null);
+                score = Number(userObj?.neynar_user_score ?? userObj?.neynar_score ?? userObj?.score ?? 0);
+                if (userObj?.fid) fid = userObj.fid;
+
+                // Persist score/fid to users table where possible
+                try {
+                    if (fid) {
+                        // Upsert by fid
+                        const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+                        await pool.query(`
+                            INSERT INTO users (fid, wallet_address, username, pfp_url, neynar_score, last_score_update)
+                            VALUES ($1, $2, $3, $4, $5, NOW())
+                            ON CONFLICT (fid) DO UPDATE SET
+                                wallet_address = COALESCE(EXCLUDED.wallet_address, users.wallet_address),
+                                neynar_score = EXCLUDED.neynar_score,
+                                last_score_update = NOW(),
+                                updated_at = NOW()
+                        `, [fid, userWallet, null, null, score]);
+                    } else if (!isNaN(score)) {
+                        await sql`UPDATE users SET neynar_score = ${score}, last_score_update = NOW() WHERE lower(wallet_address) = ${userWallet}`;
+                    }
+                } catch (e) { /* ignore cache/update failures */ }
+            } catch (e) {
+                console.debug('claims: Neynar lookup failed', e?.message || e);
+            }
         }
 
-        const amount = Number(process.env.DEFAULT_CLAIM_AMOUNT || DEFAULT_CLAIM_AMOUNT); // default to 250k for everyone
+        score = Number(score || 0);
+        let amount = 0;
+        if (score >= 0.9) amount = 500000;
+        else if (score >= 0.6) amount = 250000;
+        else return res.status(403).json({ error: "Neynar score too low to claim." });
 
-        // 3. Send $FACTS from master wallet (dynamic import of ethers to avoid module load failures)
+        // 3. Send $FACTS from master wallet
         if (!process.env.REWARDER_PRIVATE_KEY) return res.status(500).json({ error: 'REWARDER_PRIVATE_KEY not configured' });
         if (!process.env.FACTS_TOKEN_ADDRESS) return res.status(500).json({ error: 'FACTS_TOKEN_ADDRESS not configured' });
 
-        let ethersPkg;
-        try {
-            ethersPkg = await import('ethers');
-        } catch (e) {
-            console.error('claims: failed to import ethers', e);
-            return res.status(500).json({ error: 'Server misconfigured: ethers dependency missing' });
-        }
-
-        // Support both `import('ethers')` shapes (default export vs named export)
-        const E = ethersPkg?.default ?? ethersPkg;
-        const Contract = E?.Contract ?? E?.ethers?.Contract;
-        const Wallet = E?.Wallet ?? E?.ethers?.Wallet;
-        const providers = E?.providers ?? E?.ethers?.providers;
-        const parseUnits = E?.parseUnits ?? E?.ethers?.parseUnits ?? (E?.utils && E.utils.parseUnits);
-
-        if (!providers || !Wallet || !Contract || !parseUnits) {
-            console.error('claims: ethers import missing expected members', Object.keys(E || {}));
-            return res.status(500).json({ error: 'Server misconfigured: invalid ethers export' });
-        }
-
-        const provider = new providers.JsonRpcProvider(process.env.RPC_URL || 'https://mainnet.base.org');
-        const signer = new Wallet(process.env.REWARDER_PRIVATE_KEY, provider);
-        const token = new Contract(process.env.FACTS_TOKEN_ADDRESS, ["function transfer(address to, uint256 amount) returns (bool)"], signer);
+        const provider = new ethers.JsonRpcProvider(process.env.RPC_URL || 'https://mainnet.base.org');
+        const signer = new ethers.Wallet(process.env.REWARDER_PRIVATE_KEY, provider);
+        const token = new ethers.Contract(process.env.FACTS_TOKEN_ADDRESS, ["function transfer(address to, uint256 amount) returns (bool)"], signer);
         
-        const tx = await token.transfer(userWallet, parseUnits(String(amount), 18));
+        const tx = await token.transfer(userWallet, ethers.parseUnits(String(amount), 18));
         await tx.wait();
-        const txHash = tx?.hash || null;
 
-        // Ensure tx_hash column exists (safe migration path) then log claim (include fid and url for audit)
-        try {
-            await sql`ALTER TABLE facts_claims ADD COLUMN IF NOT EXISTS tx_hash TEXT`;
-        } catch (e) { /* ignore alter errors */ }
+        // 4. Log Claim (include fid and url for audit)
+        await sql`INSERT INTO facts_claims (wallet_address, fid, url_string, amount) VALUES (${userWallet}, ${fid || null}, ${url}, ${amount})`;
 
-        await sql`INSERT INTO facts_claims (wallet_address, fid, url_string, amount, tx_hash) VALUES (${userWallet}, ${resolvedFid || null}, ${url}, ${amount}, ${txHash})`;
-
-        return res.status(200).json({ message: `Success! Sent ${amount} $FACTS`, amount, txHash });
+        return res.status(200).json({ message: `Success! Sent ${amount} $FACTS` });
     } catch (e) {
         console.error('claims error', e);
         return res.status(500).json({ error: e.message });
