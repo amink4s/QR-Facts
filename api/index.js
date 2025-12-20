@@ -203,20 +203,24 @@ async function handleSyncUser(req, res) {
     if (req.method !== 'POST') return res.status(405).end();
     
     try {
+        if (!process.env.DATABASE_URL) return res.status(500).json({ error: 'DATABASE_URL not configured' });
+        
         const pool = new Pool({ connectionString: process.env.DATABASE_URL });
         const { fid, wallet, username, pfp, score } = req.body;
+
+        if (!fid) return res.status(400).json({ error: 'fid is required' });
 
         await pool.query(`
             INSERT INTO users (fid, wallet_address, username, pfp_url, neynar_score, last_score_update)
             VALUES ($1, $2, $3, $4, $5, NOW())
             ON CONFLICT (fid) DO UPDATE SET
-                wallet_address = EXCLUDED.wallet_address,
+                wallet_address = COALESCE(EXCLUDED.wallet_address, users.wallet_address),
                 username = EXCLUDED.username,
                 pfp_url = EXCLUDED.pfp_url,
                 neynar_score = EXCLUDED.neynar_score,
                 last_score_update = NOW(),
                 updated_at = NOW()
-        `, [fid, wallet?.toLowerCase(), username, pfp, score]);
+        `, [fid, wallet?.toLowerCase() || null, username, pfp, score]);
 
         res.status(200).json({ success: true });
     } catch (e) {
@@ -252,7 +256,48 @@ async function handleSubmitFact(req, res) {
 
 // Save facts handler (placeholder for compatibility)
 async function handleSaveFacts(req, res) {
-    res.status(405).json({ error: 'Save facts not implemented in consolidated handler' });
+    if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+    
+    let { url, content, wallet, fid } = req.body;
+
+    if (!process.env.DATABASE_URL) return res.status(500).json({ error: 'DATABASE_URL not configured' });
+
+    try {
+        const sql = neon(process.env.DATABASE_URL);
+        let w = wallet ? wallet.toLowerCase() : null;
+
+        // If no wallet but an fid is provided, try to resolve wallet from users table
+        if (!w && fid) {
+            const owner = await sql`SELECT wallet_address FROM users WHERE fid = ${fid} LIMIT 1`;
+            if (owner?.length && owner[0].wallet_address) {
+                w = owner[0].wallet_address.toLowerCase();
+            } else {
+                return res.status(400).json({ error: 'No wallet on file for provided fid' });
+            }
+        }
+
+        if (!w) return res.status(400).json({ error: 'wallet or fid required' });
+
+        // Attempt to insert or update only if the caller is the owner (bidder_wallet)
+        const result = await sql`
+            INSERT INTO project_facts (url_hash, urlString, bidder_wallet, content, updated_at)
+            VALUES (encode(digest(${url}, 'sha256'), 'hex'), ${url}, ${w}, ${content}, NOW())
+            ON CONFLICT (url_hash) 
+            DO UPDATE SET content = ${content}, updated_at = NOW()
+            WHERE project_facts.bidder_wallet = ${w}
+            RETURNING *;
+        `;
+
+        // If no rows returned, either the URL existed and the caller is not the owner, or something else went wrong
+        if (!result || result.length === 0) {
+            return res.status(403).json({ error: 'Unauthorized: only the original bidder may create or update facts for this project.' });
+        }
+
+        res.status(200).json({ success: true, row: result[0] });
+    } catch (e) {
+        console.error('save-facts error', e);
+        res.status(500).json({ error: e.message });
+    }
 }
 
 export const config = { api: { bodyParser: true } };

@@ -342,39 +342,26 @@
                 },
 
                 async saveFacts() {
-                    console.debug('saveFacts requested', { url: this.activeBid?.url, user: { wallet: this.user.wallet, fid: this.user.fid } });
+                    console.log('saveFacts: saving', { url: this.activeBid?.url, fid: this.user.fid });
                     if (!this.user.loggedIn) return alert('Please log in via Farcaster');
                     try {
                         const res = await fetch('/api/save-facts', {
                             method: 'POST',
                             headers: {'Content-Type': 'application/json'},
-                            body: JSON.stringify({ url: this.activeBid.url, content: this.editableContent, wallet: this.user.wallet, fid: this.user.fid })
+                            body: JSON.stringify({ url: this.activeBid.url, content: this.editableContent, fid: this.user.fid })
                         });
                         const data = await res.json();
+                        console.log('saveFacts response:', { status: res.status, data });
                         if (!res.ok) {
                             console.warn('save-facts failed', data);
                             alert(data.error || 'Failed to save — you may not be the original bidder.');
                             return;
                         }
                         this.editorOpen = false;
-                    } catch (e) { alert('Save failed: ' + e.message); }
-                },
-
-                async saveFacts() {
-                    if (!this.user.loggedIn) return alert('Please log in via Farcaster');
-                    try {
-                        const res = await fetch('/api/save-facts', {
-                            method: 'POST',
-                            headers: {'Content-Type': 'application/json'},
-                            body: JSON.stringify({ url: this.activeBid.url, content: this.editableContent, wallet: this.user.wallet, fid: this.user.fid })
-                        });
-                        const data = await res.json();
-                        if (!res.ok) {
-                            alert(data.error || 'Failed to save — you may not be the original bidder.');
-                            return;
-                        }
-                        this.editorOpen = false;
-                    } catch (e) { alert('Save failed: ' + e.message); }
+                    } catch (e) { 
+                        console.error('saveFacts exception:', e);
+                        alert('Save failed: ' + e.message); 
+                    }
                 },
 
 
