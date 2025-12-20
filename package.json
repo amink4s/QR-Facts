@@ -4,7 +4,8 @@
   "private": true,
   "dependencies": {
     "@neondatabase/serverless": "^0.9.4",
-    "viem": "^2.21.1"
+    "viem": "^2.21.1",
+    "ethers": "^6.13.2"
   },
   "scripts": {
     "vercel-build": "echo 'Building...'"

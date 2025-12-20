@@ -66,6 +66,7 @@ export default async function handler(req, res) {
                     }
                 }
 
+                console.debug('sync-user: upserting user', { fid, wallet: wallet ? wallet.toLowerCase() : null, username, score });
                 await pool.query(`
                     INSERT INTO users (fid, wallet_address, username, pfp_url, neynar_score, last_score_update)
                     VALUES ($1, $2, $3, $4, $5, NOW())
@@ -338,6 +339,7 @@ async function handleSyncUser(req, res) {
             }
         }
 
+        console.debug('sync-user: upserting user', { fid, wallet: wallet || null, username, score });
         await pool.query(`
             INSERT INTO users (fid, wallet_address, username, pfp_url, neynar_score, last_score_update)
             VALUES ($1, $2, $3, $4, $5, NOW())
