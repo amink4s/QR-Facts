@@ -11,7 +11,7 @@ export default async function handler(req, res) {
     try {
         // Find all project URLs this user has already claimed
         const { rows } = await pool.query(
-            'SELECT url_string FROM claims WHERE fid = $1',
+            'SELECT DISTINCT url_string FROM facts_claims WHERE fid = $1',
             [fid]
         );
         

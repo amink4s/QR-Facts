@@ -1,0 +1,12 @@
+--- api/claims.js
++++ api/claims.js
+@@ -42,7 +42,8 @@ export default async function handler(req, res) {
+         await tx.wait();
+ 
+         // 4. Log Claim
+-        await sql\`INSERT INTO facts_claims (wallet_address, amount) VALUES (\${userWallet}, \${amount})\`;
++        const urlForLog = url || 'unknown';
++        await sql\`INSERT INTO facts_claims (wallet_address, fid, url_string, amount) VALUES (\${userWallet}, \${fid || null}, \${urlForLog}, \${amount})\`;
+ 
+         return res.status(200).json({ message: \`Success! Sent \${amount} $FACTS\` });
+     } catch (e) {
