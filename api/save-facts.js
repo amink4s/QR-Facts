@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { neon } from '@neondatabase/serverless';
 
 export default async function handler(req, res) {
@@ -22,10 +23,13 @@ export default async function handler(req, res) {
 
         if (!w) return res.status(400).json({ error: 'wallet or fid required' });
 
+        // Compute sha256 hash of the URL as a hex string (pgcrypto may not be available)
+        const urlHash = crypto.createHash('sha256').update(String(url)).digest('hex');
+
         // Attempt to insert or update only if the caller is the owner (bidder_wallet)
         const result = await sql`
             INSERT INTO project_facts (url_hash, urlString, bidder_wallet, content, updated_at)
-            VALUES (encode(digest(${url}, 'sha256'), 'hex'), ${url}, ${w}, ${content}, NOW())
+            VALUES (${urlHash}, ${url}, ${w}, ${content}, NOW())
             ON CONFLICT (url_hash) 
             DO UPDATE SET content = ${content}, updated_at = NOW()
             WHERE project_facts.bidder_wallet = ${w}

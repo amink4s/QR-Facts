@@ -2,6 +2,7 @@ import { Pool } from '@neondatabase/serverless';
 import { neon } from '@neondatabase/serverless';
 import { createPublicClient, http } from 'viem';
 import { base } from 'viem/chains';
+import crypto from 'crypto';
 
 export default async function handler(req, res) {
     const { action } = req.query;
@@ -80,8 +81,6 @@ export default async function handler(req, res) {
                 res.status(500).json({ error: e.message });
             }
         }
-        console.error('lookup-owner error', e);
-        res.status(500).json({ error: e.message });
     }
 }
 
@@ -109,6 +108,74 @@ async function handleLookupNames(req, res) {
     } catch (e) {
         console.error('lookup-names error', e?.message || e);
         return res.status(200).json({ username: null });
+    }
+}
+
+// Lookup owner by wallet address
+async function handleLookupOwner(req, res) {
+    const { address } = req.query;
+    if (!address) return res.status(400).json({ fid: null, username: null });
+
+    try {
+        const sql = neon(process.env.DATABASE_URL);
+        const addr = String(address).toLowerCase();
+
+        // Check bidder_cache first
+        const cache = await sql`SELECT bidder_name, bidder_fid FROM bidder_cache WHERE wallet_address = ${addr} LIMIT 1`;
+        if (cache?.length && (cache[0].bidder_fid || cache[0].bidder_name)) {
+            return res.status(200).json({ fid: cache[0].bidder_fid || null, username: cache[0].bidder_name || null });
+        }
+
+        // Check users table
+        const owner = await sql`SELECT fid, username FROM users WHERE wallet_address = ${addr} LIMIT 1`;
+        if (owner?.length) {
+            // Optionally cache the result
+            try {
+                await sql`
+                    INSERT INTO bidder_cache (wallet_address, bidder_name, bidder_fid, last_updated)
+                    VALUES (${addr}, ${owner[0].username || null}, ${owner[0].fid || null}, NOW())
+                    ON CONFLICT (wallet_address) DO UPDATE SET
+                        bidder_name = COALESCE(EXCLUDED.bidder_name, bidder_cache.bidder_name),
+                        bidder_fid = COALESCE(EXCLUDED.bidder_fid, bidder_cache.bidder_fid),
+                        last_updated = NOW()
+                `;
+            } catch (e) { /* ignore caching errors */ }
+
+            return res.status(200).json({ fid: owner[0].fid || null, username: owner[0].username || null });
+        }
+
+        // Try Neynar lookup as a fallback
+        try {
+            const url = `https://api.neynar.com/v2/farcaster/user/bulk-by-address?addresses=${encodeURIComponent(addr)}`;
+            const response = await fetch(url, { method: 'GET', headers: { 'x-api-key': process.env.NEYNAR_API_KEY } });
+            const data = await response.json();
+            const key = Object.keys(data).find(k => k.toLowerCase() === addr);
+            const userObj = key ? data[key]?.[0] : null;
+            const username = userObj?.username || null;
+            const fid = userObj?.fid || userObj?.farcasterId || userObj?.id || null;
+
+            if (fid) {
+                const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+                try {
+                    await pool.query(`
+                        INSERT INTO users (fid, wallet_address, username, last_score_update)
+                        VALUES ($1,$2,$3,NOW())
+                        ON CONFLICT (fid) DO UPDATE SET
+                            wallet_address = COALESCE(EXCLUDED.wallet_address, users.wallet_address),
+                            username = EXCLUDED.username,
+                            updated_at = NOW()
+                    `, [fid, addr, username]);
+                } catch (e) { /* ignore */ }
+            }
+
+            return res.status(200).json({ fid: fid || null, username: username || null });
+        } catch (e) {
+            console.debug('lookup-owner neynar failed', e);
+            return res.status(200).json({ fid: null, username: null });
+        }
+    } catch (e) {
+        console.error('lookup-owner error', e?.message || e);
+        return res.status(500).json({ error: e.message });
     }
 }
 
@@ -371,10 +438,13 @@ async function handleSaveFacts(req, res) {
 
         if (!w) return res.status(400).json({ error: 'wallet or fid required' });
 
+        // Compute sha256 hash of the URL as hex (do this in JS to avoid depending on pgcrypto)
+        const urlHash = crypto.createHash('sha256').update(String(url)).digest('hex');
+
         // Attempt to insert or update only if the caller is the owner (bidder_wallet)
         const result = await sql`
             INSERT INTO project_facts (url_hash, urlString, bidder_wallet, content, updated_at)
-            VALUES (encode(digest(${url}, 'sha256'), 'hex'), ${url}, ${w}, ${content}, NOW())
+            VALUES (${urlHash}, ${url}, ${w}, ${content}, NOW())
             ON CONFLICT (url_hash) 
             DO UPDATE SET content = ${content}, updated_at = NOW()
             WHERE project_facts.bidder_wallet = ${w}
