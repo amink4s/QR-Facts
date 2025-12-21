@@ -1,4 +1,9 @@
 {
+  "accountAssociation": {
+  "header": "eyJmaWQiOjQ3NzEyNiwidHlwZSI6ImN1c3RvZHkiLCJrZXkiOiIweDIxOGE5YjU4QjkyOWRCRDBEOTEzMkFENEZlYzBkRkRCNzkyNDUyYkQifQ",
+  "payload": "eyJkb21haW4iOiJxci1mYWN0cy52ZXJjZWwuYXBwIn0",
+  "signature": "59yH1ziF/+EVDRui0uYv2cJYZUuJ36vKmiVtp+zvwlN/R27DCmKwiIBbeQp8f1veYH/5MjLcuddZAd59D8qrXRs="
+},
   "frame": {
     "name": "qr facts",
     "version": "1",
