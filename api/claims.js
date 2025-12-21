@@ -54,22 +54,22 @@ export default async function handler(req, res) {
             return res.status(500).json({ error: 'Server misconfigured: ethers dependency missing' });
         }
 
-        // Support both `import('ethers')` shapes (default export vs named export)
+        // Handle both ethers v6 (named exports) and v5 (ethers.providers, ethers.Wallet)
         const E = ethersPkg?.default ?? ethersPkg;
-        const Contract = E?.Contract ?? E?.ethers?.Contract;
-        const Wallet = E?.Wallet ?? E?.ethers?.Wallet;
-        const providers = E?.providers ?? E?.ethers?.providers;
-        const parseUnits = E?.parseUnits ?? E?.ethers?.parseUnits ?? (E?.utils && E.utils.parseUnits);
+        const JsonRpcProvider = E?.JsonRpcProvider || E?.providers?.JsonRpcProvider || E?.ethers?.providers?.JsonRpcProvider;
+        const Wallet = E?.Wallet || E?.ethers?.Wallet;
+        const Contract = E?.Contract || E?.ethers?.Contract;
+        const parseUnits = E?.parseUnits || E?.ethers?.utils?.parseUnits || E?.utils?.parseUnits;
 
-        if (!providers || !Wallet || !Contract || !parseUnits) {
+        if (!JsonRpcProvider || !Wallet || !Contract || !parseUnits) {
             console.error('claims: ethers import missing expected members', Object.keys(E || {}));
             return res.status(500).json({ error: 'Server misconfigured: invalid ethers export' });
         }
 
-        const provider = new providers.JsonRpcProvider(process.env.RPC_URL || 'https://mainnet.base.org');
+        const provider = new JsonRpcProvider(process.env.RPC_URL || 'https://mainnet.base.org');
         const signer = new Wallet(process.env.REWARDER_PRIVATE_KEY, provider);
         const token = new Contract(process.env.FACTS_TOKEN_ADDRESS, ["function transfer(address to, uint256 amount) returns (bool)"], signer);
-        
+
         const tx = await token.transfer(userWallet, parseUnits(String(amount), 18));
         await tx.wait();
         const txHash = tx?.hash || null;
