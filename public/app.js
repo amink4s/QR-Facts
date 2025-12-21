@@ -13,7 +13,7 @@ document.addEventListener('alpine:init', () => {
         activeFacts: '',
         editableContent: '',
         canFinish: false,
-        countdown: 3,
+        countdown: 7,
 
         async init() {
             // 1. IMMEDIATELY call ready as per docs to hide splash screen
