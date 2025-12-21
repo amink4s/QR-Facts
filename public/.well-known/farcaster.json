@@ -16,7 +16,9 @@
     "webhookUrl": "https://qr-facts.vercel.app/api/webhook",
     "subtitle": "qr bids explained",
     "description": "a QR Coin companion mini app for bidders to explain what they are fighting for",
+    "ogDescription": "a QR Coin companion mini app for bidders to explain what they are fighting for",
     "primaryCategory": "utility",
+    "tagline": "qr bids explained",
     "screenshotUrls": [
       "https://qr-facts.vercel.app/screenshot1.png",
       "https://qr-facts.vercel.app/screenshot2.png"
