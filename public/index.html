@@ -104,7 +104,7 @@
             <p class="text-[10px] text-purple-500 font-bold mb-8 uppercase" x-text="'Facts by ' + activeBid?.bidderName"></p>
             <div class="text-gray-300 text-sm leading-relaxed bg-white/5 p-6 rounded-2xl border border-white/10" x-text="activeFacts"></div>
         </div>
-        <button @click="readerOpen = false; activeBid.hasRead = true" :disabled="!canFinish" :class="canFinish ? 'bg-purple-600' : 'bg-white/10 text-gray-600'" class="w-full py-5 rounded-3xl font-black text-xs uppercase">
+        <button @click="confirmRead()" :disabled="!canFinish" :class="canFinish ? 'bg-purple-600' : 'bg-white/10 text-gray-600'" class="w-full py-5 rounded-3xl font-black text-xs uppercase">
             <span x-text="canFinish ? 'CONFIRM VERIFICATION' : 'REVIEWING... ' + countdown + 's'"></span>
         </button>
     </div>
@@ -138,6 +138,12 @@
                 editableContent: '',
                 canFinish: false,
                 countdown: 7,
+
+                hasValidFacts(content) {
+                    const text = (content || '').trim();
+                    if (text.length < 10) return false;
+                    return !text.toLowerCase().includes('not provided');
+                },
 
                 async init() {
                     try {
@@ -324,7 +330,7 @@
                                 const rf = await fetch(`/api/get-facts?url=${encodeURIComponent(bid.url)}`);
                                 const fd = await rf.json();
                                 const content = fd.content || '';
-                                bid.hasFacts = !(content.toLowerCase().includes('not provided') || content.trim().length < 10);
+                                bid.hasFacts = this.hasValidFacts(content);
                                 this.bids = [...this.bids];
                             } catch (e) {
                                 bid.hasFacts = false; this.bids = [...this.bids];
@@ -345,10 +351,25 @@
                     const res = await fetch(`/api/get-facts?url=${encodeURIComponent(bid.url)}`);
                     const data = await res.json();
                     this.activeFacts = data.content;
+
+                    // Ensure hasFacts updates even if metadata resolver missed it
+                    if (bid) {
+                        bid.hasFacts = this.hasValidFacts(data.content);
+                        this.bids = [...this.bids];
+                    }
+
                     let timer = setInterval(() => {
                         this.countdown--;
                         if (this.countdown <= 0) { clearInterval(timer); this.canFinish = true; }
                     }, 1000);
+                },
+
+                confirmRead() {
+                    if (this.activeBid) {
+                        this.readerOpen = false;
+                        this.activeBid.hasRead = true;
+                        this.bids = [...this.bids];
+                    }
                 },
 
                 async openEditor(bid) {
