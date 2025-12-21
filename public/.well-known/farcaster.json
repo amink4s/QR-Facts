@@ -1,17 +1,26 @@
 {
+    "accountAssociation": {
+  "header": "eyJmaWQiOjQ3NzEyNiwidHlwZSI6ImN1c3RvZHkiLCJrZXkiOiIweDIxOGE5YjU4QjkyOWRCRDBEOTEzMkFENEZlYzBkRkRCNzkyNDUyYkQifQ",
+  "payload": "eyJkb21haW4iOiJxci1mYWN0cy52ZXJjZWwuYXBwIn0",
+  "signature": "59yH1ziF/+EVDRui0uYv2cJYZUuJ36vKmiVtp+zvwlN/R27DCmKwiIBbeQp8f1veYH/5MjLcuddZAd59D8qrXRs="
+},
   "frame": {
     "name": "qr facts",
     "version": "1",
     "iconUrl": "https://qr-facts.vercel.app/icon.png",
     "homeUrl": "https://qr-facts.vercel.app",
     "imageUrl": "https://qr-facts.vercel.app/image.png",
-    "buttonTitle": "qrr facts",
+    "buttonTitle": "qr facts",
     "splashImageUrl": "https://qr-facts.vercel.app/splash.png",
     "splashBackgroundColor": "#FFFFFF",
     "webhookUrl": "https://qr-facts.vercel.app/api/webhook",
     "subtitle": "qr bids explained",
-    "description": "a companion mini app to qr coin for biddersr to explain  what they are fighting for",
+    "description": "a QR Coin companion mini app for bidders to explain what they are fighting for",
     "primaryCategory": "utility",
+    "screenshotUrls": [
+      "https://qr-facts.vercel.app/screenshot1.png",
+      "https://qr-facts.vercel.app/screenshot2.png"
+    ],
     "tags": [
       "qr",
       "qrcoin",
